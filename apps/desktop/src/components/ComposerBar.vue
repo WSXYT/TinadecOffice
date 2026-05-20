@@ -3,16 +3,23 @@ import { ArrowUp, Plus, Image, FileText } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { ref } from 'vue'
 import { UiButton, UiDropdownMenu } from '@/components/ui'
+import ModeSelector from './ModeSelector.vue'
+import PermissionSelector from './PermissionSelector.vue'
+import type { AgentMode, PermissionLevel } from '@/types/mode'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   busy: boolean
   modelValue: string
+  mode: AgentMode
+  permission: PermissionLevel
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'update:mode': [value: AgentMode]
+  'update:permission': [value: PermissionLevel]
   'submit': []
   'add-image': []
   'add-file': []
@@ -77,6 +84,17 @@ function handleKeydown(event: KeyboardEvent) {
         >
           <ArrowUp :size="16" />
         </UiButton>
+      </div>
+
+      <div class="composer-toolbar">
+        <ModeSelector
+          :model-value="mode"
+          @update:model-value="emit('update:mode', $event)"
+        />
+        <PermissionSelector
+          :model-value="permission"
+          @update:model-value="emit('update:permission', $event)"
+        />
       </div>
     </div>
   </div>

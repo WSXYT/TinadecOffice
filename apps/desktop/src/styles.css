@@ -2090,6 +2090,147 @@ h1 {
   cursor: not-allowed;
 }
 
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--border-muted);
+}
+
+.mode-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.mode-selector-trigger:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.mode-selector-label {
+  font-weight: 500;
+}
+
+.mode-selector-chevron {
+  opacity: 0.5;
+}
+
+.mode-selector-portal {
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  box-shadow: var(--shadow-panel);
+  padding: 4px;
+}
+
+.mode-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  outline: none;
+}
+
+.mode-selector-item:hover,
+.mode-selector-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.mode-selector-item.active {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  font-weight: 500;
+}
+
+.permission-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.permission-selector-trigger:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.permission-selector-label {
+  font-weight: 500;
+}
+
+.permission-selector-chevron {
+  opacity: 0.5;
+}
+
+.permission-selector-portal {
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  box-shadow: var(--shadow-panel);
+  padding: 4px;
+}
+
+.permission-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  outline: none;
+}
+
+.permission-selector-item:hover,
+.permission-selector-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.permission-selector-item.active {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  font-weight: 500;
+}
+
 textarea,
 input {
   width: 100%;

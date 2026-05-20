@@ -128,11 +128,19 @@ const app = new Elysia({ adapter: node() })
     setStatus(set, result.status);
     return result.data;
   })
+  .post('/api/v1/runs/:runId/tools/:toolId/execute', async ({ params, body, set }) => {
+    const result = await proxyJson(`/api/v1/runs/${params.runId}/tools/${params.toolId}/execute`, {
+      method: 'POST',
+      body: body as Record<string, unknown>
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
   .get('/api/v1/code/tools', () => ({
     tools: listCodeToolIds()
   }))
-  .post('/api/v1/code/tools/:toolId/execute', ({ params, body, set }) => {
-    const result = executeCodeTool(params.toolId, body as CodeToolExecuteRequest);
+  .post('/api/v1/code/tools/:toolId/execute', async ({ params, body, set }) => {
+    const result = await executeCodeTool(params.toolId, body as CodeToolExecuteRequest);
     if (!result) {
       setStatus(set, 404);
       return {

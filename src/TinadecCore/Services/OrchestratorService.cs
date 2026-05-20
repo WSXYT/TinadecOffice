@@ -10,12 +10,21 @@ public sealed class OrchestratorService
     private readonly CoreStore _store;
     private readonly EventHub _events;
     private readonly IAgentWorkflowRuntime _workflowRuntime;
+    private readonly IToolRegistry _tools;
+    private readonly ICodeToolClient _codeTools;
 
-    public OrchestratorService(CoreStore store, EventHub events, IAgentWorkflowRuntime workflowRuntime)
+    public OrchestratorService(
+        CoreStore store,
+        EventHub events,
+        IAgentWorkflowRuntime workflowRuntime,
+        IToolRegistry tools,
+        ICodeToolClient codeTools)
     {
         _store = store;
         _events = events;
         _workflowRuntime = workflowRuntime;
+        _tools = tools;
+        _codeTools = codeTools;
     }
 
     public OrchestrationSnapshotDto CreateRunForMessage(string sessionId, string userMessageId, string userContent)
@@ -97,6 +106,110 @@ public sealed class OrchestratorService
         }
 
         return snapshot;
+    }
+
+    public async Task DispatchReadOnlyToolsAsync(
+        OrchestrationSnapshotDto snapshot,
+        string userContent,
+        CancellationToken cancellationToken = default)
+    {
+        if (snapshot.Run is null)
+        {
+            return;
+        }
+
+        var workflow = _workflowRuntime.Compile(snapshot);
+        var session = _store.ListSessions(null).FirstOrDefault(item => item.Id == snapshot.Run.SessionId);
+        var project = session is null
+            ? null
+            : _store.ListProjects().FirstOrDefault(item => item.Id == session.ProjectId);
+        var cwd = project?.Path ?? Directory.GetCurrentDirectory();
+
+        foreach (var step in workflow.Steps)
+        {
+            foreach (var toolId in step.ToolIds)
+            {
+                var tool = _tools.Resolve(toolId);
+                if (tool is null || tool.RequiresApproval || tool.Risk != "read-only")
+                {
+                    continue;
+                }
+
+                Publish("tool.execution.requested", snapshot.Run.SessionId, new JsonObject
+                {
+                    ["run_id"] = snapshot.Run.Id,
+                    ["tool_id"] = tool.Id,
+                    ["task_node_id"] = step.TaskNodeId,
+                    ["auto_dispatch"] = true
+                }, ["tool.execution", "agent.workflow"]);
+
+                try
+                {
+                    var result = await _codeTools.ExecuteAsync(
+                        tool,
+                        new CodeToolExecuteRequest(
+                            snapshot.Run.SessionId,
+                            snapshot.Run.Id,
+                            step.TaskNodeId,
+                            null,
+                            cwd,
+                            BuildReadOnlyArguments(tool.Id, userContent)),
+                        cancellationToken);
+
+                    var stepResult = _store.AddStepResult(
+                        snapshot.Run.Id,
+                        step.TaskNodeId,
+                        step.AgentId,
+                        result.Status,
+                        result.Summary,
+                        result.Evidence);
+
+                    Publish(result.Status is "failed" or "blocked" ? "tool.execution.failed" : "tool.execution.completed",
+                        snapshot.Run.SessionId,
+                        new JsonObject
+                        {
+                            ["run_id"] = snapshot.Run.Id,
+                            ["tool_id"] = tool.Id,
+                            ["task_node_id"] = step.TaskNodeId,
+                            ["status"] = result.Status,
+                            ["step_result_id"] = stepResult.Id
+                        },
+                        ["tool.execution", "step.result"]);
+                }
+                catch (Exception ex)
+                {
+                    var stepResult = _store.AddStepResult(
+                        snapshot.Run.Id,
+                        step.TaskNodeId,
+                        step.AgentId,
+                        "failed",
+                        $"Read-only tool dispatch failed: {ex.Message}",
+                        ["tool dispatch failed", tool.Id]);
+
+                    Publish("tool.execution.failed", snapshot.Run.SessionId, new JsonObject
+                    {
+                        ["run_id"] = snapshot.Run.Id,
+                        ["tool_id"] = tool.Id,
+                        ["task_node_id"] = step.TaskNodeId,
+                        ["status"] = "failed",
+                        ["step_result_id"] = stepResult.Id
+                    }, ["tool.execution", "step.result"]);
+                }
+            }
+        }
+    }
+
+    private static IReadOnlyDictionary<string, object?> BuildReadOnlyArguments(string toolId, string userContent)
+    {
+        return toolId switch
+        {
+            "search_files" => new Dictionary<string, object?>
+            {
+                ["query"] = string.IsNullOrWhiteSpace(userContent) ? "Tinadec" : userContent,
+                ["limit"] = 10
+            },
+            _ => new Dictionary<string, object?>()
+        };
     }
 
     private void Publish(string type, string sessionId, JsonObject payload, IReadOnlyList<string> capabilities)

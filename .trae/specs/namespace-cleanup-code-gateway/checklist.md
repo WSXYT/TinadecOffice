@@ -1,0 +1,5 @@
+- [x] `apps/gateway/package.json` 的 `name` 为 `@tinadec/gateway`
+- [x] 根 `package.json` 的 `dev:code` 已改为 `dev:gateway`
+- [x] 根 `package.json` 的 `concurrently` 标签为 `core,gateway,desktop`
+- [x] `codeTools.ts` 的 stub 消息不再使用 "Code-layer" 措辞
+- [x] `npm ls -w @tinadec/gateway` 可正常解析

@@ -324,3 +324,10 @@ public sealed record CodeToolExecuteResultDto(
     IReadOnlyDictionary<string, object?> Data,
     bool RequiresApproval,
     string? ApprovalSummary);
+
+public sealed record ToolExecutionResponseDto(
+    string Status,
+    ToolDescriptorDto Tool,
+    ApprovalDto? Approval,
+    CodeToolExecuteResultDto? Result,
+    StepResultDto? StepResult);

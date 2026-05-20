@@ -78,5 +78,6 @@ public sealed record CodeToolExecuteRequest(
     string? SessionId,
     string? RunId,
     string? TaskNodeId,
+    string? ApprovalId,
     string? Cwd,
     IReadOnlyDictionary<string, object?>? Arguments);

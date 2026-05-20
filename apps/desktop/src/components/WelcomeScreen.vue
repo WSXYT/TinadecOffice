@@ -6,17 +6,18 @@ import {
   FolderOpen,
   FolderPlus,
   Image,
-  List,
   MessageCircle,
   Plus,
   SquareTerminal,
   FileText,
-  Map,
   ChevronRight,
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDto } from '../api'
 import { UiButton, UiDropdownMenu, UiScrollArea } from '@/components/ui'
+import ModeSelector from './ModeSelector.vue'
+import PermissionSelector from './PermissionSelector.vue'
+import type { AgentMode, PermissionLevel } from '@/types/mode'
 
 const { t } = useI18n()
 
@@ -33,13 +34,16 @@ const emit = defineEmits<{
   'select-project': [id: string]
   'add-image': []
   'add-file': []
-  'plan-mode': []
+  'update:mode': [value: AgentMode]
+  'update:permission': [value: PermissionLevel]
 }>()
 
 const draft = ref('')
 const showPlusMenu = ref(false)
 const showProjectDropdown = ref(false)
 const isChatMode = ref(false)
+const currentMode = ref<AgentMode>('auto')
+const currentPermission = ref<PermissionLevel>('default')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const projectTriggerRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
@@ -114,6 +118,16 @@ function openNewProject() {
   showProjectDropdown.value = false
 }
 
+function handleModeChange(mode: AgentMode) {
+  currentMode.value = mode
+  emit('update:mode', mode)
+}
+
+function handlePermissionChange(perm: PermissionLevel) {
+  currentPermission.value = perm
+  emit('update:permission', perm)
+}
+
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as HTMLElement
   if (!target.closest('.project-dropdown-trigger') && !target.closest('.project-dropdown-portal')) {
@@ -162,10 +176,6 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
                 <FileText :size="14" />
                 <span>{{ t('chat.addFile') }}</span>
               </button>
-              <button class="plus-menu-item" @click="emit('plan-mode'); showPlusMenu = false">
-                <Map :size="14" />
-                <span>{{ t('chat.planMode') }}</span>
-              </button>
             </UiDropdownMenu>
           </div>
 
@@ -192,6 +202,14 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 
         <div class="welcome-dialog-toolbar">
           <div class="toolbar-left">
+            <ModeSelector
+              :model-value="currentMode"
+              @update:model-value="handleModeChange"
+            />
+            <PermissionSelector
+              :model-value="currentPermission"
+              @update:model-value="handlePermissionChange"
+            />
             <button
               ref="projectTriggerRef"
               class="project-dropdown-trigger"
@@ -203,10 +221,6 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
               </span>
               <ChevronDown :size="12" class="project-dropdown-chevron" />
             </button>
-            <UiButton variant="ghost" size="sm" class="toolbar-plan">
-              <List :size="14" />
-              <span>{{ t('chat.plan') }}</span>
-            </UiButton>
           </div>
           <div class="toolbar-right">
             <UiButton variant="ghost" size="sm" class="toolbar-model">

@@ -11,6 +11,8 @@ function createWindow() {
     minHeight: 720,
     backgroundColor: '#0d1117',
     title: 'TinadecCode',
+    frame: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -28,6 +30,8 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+
+  return win;
 }
 
 ipcMain.handle('tinadec:open-project', async () => {
@@ -41,6 +45,24 @@ ipcMain.handle('tinadec:open-project', async () => {
   }
 
   return result.filePaths[0];
+});
+
+ipcMain.on('tinadec:minimize', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+
+ipcMain.on('tinadec:maximize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (win.isMaximized()) {
+    win.unmaximize();
+  } else {
+    win.maximize();
+  }
+});
+
+ipcMain.on('tinadec:close', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
 });
 
 app.whenReady().then(() => {

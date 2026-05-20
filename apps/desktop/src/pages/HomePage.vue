@@ -8,6 +8,7 @@ import AppHeader from '../components/AppHeader.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
+import type { AgentMode, PermissionLevel } from '../types/mode'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -33,6 +34,8 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const eventSource = ref<EventSource | null>(null)
 const rightRailCollapsed = ref(false)
+const currentMode = ref<AgentMode>('auto')
+const currentPermission = ref<PermissionLevel>('default')
 
 const currentProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value) ?? null)
 const currentSession = computed(() => sessions.value.find((session) => session.id === selectedSessionId.value) ?? null)
@@ -282,7 +285,11 @@ onUnmounted(() => {
         :orchestration="orchestration"
         :busy="busy"
         :draft="draft"
+        :mode="currentMode"
+        :permission="currentPermission"
         @update:draft="draft = $event"
+        @update:mode="currentMode = $event"
+        @update:permission="currentPermission = $event"
         @send="sendMessage"
         @welcome-send="handleWelcomeSend"
         @create-project="openProject"

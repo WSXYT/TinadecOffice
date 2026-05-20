@@ -38,6 +38,7 @@ builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
 });
 builder.Services.AddSingleton<DoctorService>();
 builder.Services.AddSingleton<OrchestratorService>();
+builder.Services.AddSingleton<ToolExecutionService>();
 
 var app = builder.Build();
 app.UseCors();
@@ -122,6 +123,7 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
     }, ["agent.message"]));
 
     var orchestration = orchestrator.CreateRunForMessage(sessionId, userMessage.Id, userMessage.Content);
+    await orchestrator.DispatchReadOnlyToolsAsync(orchestration, userMessage.Content, cancellationToken);
 
     var route = coreStore.GetModelRoute("planner");
     var provider = route is null
@@ -188,6 +190,24 @@ app.MapGet("/api/v1/sessions/{sessionId}/context-packs", (string sessionId, Core
 app.MapGet("/api/v1/sessions/{sessionId}/supervision-findings", (string sessionId, CoreStore coreStore) =>
 {
     return Results.Ok(coreStore.ListSupervisionFindings(sessionId));
+});
+
+app.MapPost("/api/v1/runs/{runId}/tools/{toolId}/execute", async (
+    string runId,
+    string toolId,
+    CodeToolExecuteRequest request,
+    ToolExecutionService toolExecution,
+    CancellationToken cancellationToken) =>
+{
+    var response = await toolExecution.ExecuteAsync(runId, toolId, request, cancellationToken);
+    if (response is null)
+    {
+        return Results.NotFound(new TinadecError("TOOL_EXECUTION_NOT_FOUND", "Run or tool was not found."));
+    }
+
+    return string.Equals(response.Status, "approval_required", StringComparison.OrdinalIgnoreCase)
+        ? Results.Accepted($"/api/v1/approvals/{response.Approval?.Id}", response)
+        : Results.Ok(response);
 });
 
 app.MapGet("/api/v1/events", async (HttpContext context, string? sessionId, CoreStore coreStore, EventHub events) =>

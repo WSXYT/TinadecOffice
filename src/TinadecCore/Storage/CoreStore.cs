@@ -678,6 +678,12 @@ public sealed class CoreStore
         }
     }
 
+    public ApprovalDto? GetApproval(string approvalId)
+    {
+        using var connection = OpenConnection();
+        return GetApproval(connection, approvalId);
+    }
+
     public StoredModelSettings GetModelSettings()
     {
         using var connection = OpenConnection();
@@ -1574,6 +1580,48 @@ public sealed class CoreStore
         return runs;
     }
 
+    public OrchestrationRunDto? GetRun(string runId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, session_id, user_message_id, status, summary, created_at, updated_at
+            from orchestration_runs
+            where id = $id
+            """;
+        command.Parameters.AddWithValue("$id", runId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadOrchestrationRun(reader) : null;
+    }
+
+    public StepResultDto AddStepResult(
+        string runId,
+        string taskNodeId,
+        string agentId,
+        string status,
+        string summary,
+        IReadOnlyList<string> evidence)
+    {
+        var result = new StepResultDto(
+            $"step_{Guid.NewGuid():N}",
+            runId,
+            taskNodeId,
+            agentId,
+            status,
+            summary,
+            evidence,
+            DateTimeOffset.UtcNow);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            InsertStepResult(connection, result);
+        }
+
+        return result;
+    }
+
     public IReadOnlyList<TaskNodeDto> ListTaskNodes(string sessionId)
     {
         using var connection = OpenConnection();
@@ -2303,9 +2351,8 @@ public sealed class CoreStore
 
     private string? GetApprovalStatus(string approvalId) => GetApproval(approvalId)?.Status;
 
-    private ApprovalDto? GetApproval(string approvalId)
+    private static ApprovalDto? GetApproval(SqliteConnection connection, string approvalId)
     {
-        using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = "select id, session_id, kind, summary, command, cwd, status, created_at, decided_at from approvals where id = $id";
         command.Parameters.AddWithValue("$id", approvalId);
