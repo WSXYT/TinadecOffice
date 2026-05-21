@@ -1685,8 +1685,7 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  grid-row: 1 / -1;
+  flex: 1;
   overflow: hidden;
   padding: 24px;
 }
@@ -1694,7 +1693,7 @@ button {
 .welcome-content {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 20px;
   width: 100%;
   max-width: 768px;
@@ -2089,8 +2088,8 @@ button {
 }
 
 .conversation {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   position: absolute;
   top: var(--chat-top, 0);
   left: var(--chat-left, 0);
@@ -3745,7 +3744,7 @@ select:focus {
 .chat-active-panel {
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  height: 100%;
+  flex: 1;
   min-height: 0;
 }
 

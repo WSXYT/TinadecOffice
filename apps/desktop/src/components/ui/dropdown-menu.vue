@@ -5,9 +5,12 @@ import { ref, watch } from 'vue'
 interface Props {
   open?: boolean
   class?: string
+  placement?: 'top' | 'bottom'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  placement: 'bottom',
+})
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
@@ -39,6 +42,7 @@ function open() {
       v-if="isOpen"
       :class="cn(
         'absolute z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
+        placement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
         props.class,
       )"
     >

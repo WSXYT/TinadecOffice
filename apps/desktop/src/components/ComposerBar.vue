@@ -54,7 +54,7 @@ function goToAgentSettings() {
     <div class="composer-box">
       <div class="composer-main">
         <div class="composer-plus-wrapper">
-          <UiDropdownMenu v-model:open="showPlusMenu" class="plus-dropdown-menu">
+          <UiDropdownMenu v-model:open="showPlusMenu" placement="top" class="plus-dropdown-menu">
             <template #trigger>
               <UiButton variant="ghost" size="icon" class="composer-plus">
                 <Plus :size="16" />
