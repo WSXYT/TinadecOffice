@@ -241,6 +241,32 @@ function toggleProviderDetail(providerId: string) {
   selectedProviderDetailId.value = selectedProviderDetailId.value === providerId ? '' : providerId
 }
 
+async function toggleProviderEnabled(provider: ModelProviderInstanceDto) {
+  busy.value = true
+  try {
+    const tmpl = findTemplate(provider.driver)
+    const payload: SaveModelProviderInstanceInput = {
+      id: provider.id,
+      driver: provider.driver,
+      display_name: provider.display_name,
+      connection_kind: provider.connection_kind,
+      base_url: provider.base_url,
+      model: provider.model,
+      clear_api_key: false,
+      binary_path: provider.binary_path,
+      home_path: provider.home_path,
+      server_url: provider.server_url,
+      launch_args: provider.launch_args,
+      capabilities: provider.capabilities,
+      enabled: !provider.enabled
+    }
+    await api.saveModelProvider(provider.id, payload)
+    await loadModelCenter()
+  } finally {
+    busy.value = false
+  }
+}
+
 async function deleteProvider(providerId: string) {
   busy.value = true
   try {
@@ -535,55 +561,91 @@ loadAgentCenter()
                   <ChevronRight :size="14" class="provider-chevron" :class="{ open: selectedProviderDetailId === provider.id }" />
                 </div>
               </button>
+              <Transition name="detail-slide">
               <div v-if="selectedProviderDetailId === provider.id" class="provider-detail-panel">
                 <div class="provider-detail-head">
-                  <span class="provider-brand-icon large" :style="{ color: brandColor(provider.driver) }" v-html="findTemplate(provider.driver)?.icon ?? ''"></span>
+                  <span class="provider-detail-logo" :style="{ background: brandBg(provider.driver), borderColor: brandColor(provider.driver) + '30' }" v-html="findTemplate(provider.driver)?.icon ?? ''"></span>
                   <div class="provider-detail-info">
                     <strong>{{ provider.display_name }}</strong>
-                    <span>{{ provider.driver }} · {{ connectionKindLabel(provider.connection_kind) }}</span>
+                    <span class="provider-detail-driver">{{ provider.driver }} · {{ connectionKindLabel(provider.connection_kind) }}</span>
                   </div>
                   <UiBadge :variant="statusVariant(provider.status)">
                     <Circle :size="8" />
                     {{ statusLabel(provider.status) }}
                   </UiBadge>
                 </div>
-                <div class="provider-detail-grid">
-                  <div v-if="provider.base_url">
-                    <span class="provider-detail-label">Base URL</span>
-                    <span class="provider-detail-value">{{ provider.base_url }}</span>
-                  </div>
-                  <div v-if="provider.model">
-                    <span class="provider-detail-label">Model</span>
-                    <span class="provider-detail-value">{{ provider.model }}</span>
-                  </div>
-                  <div>
-                    <span class="provider-detail-label">API Key</span>
-                    <span class="provider-detail-value">{{ provider.has_api_key ? '已存储' : '未设置' }}</span>
-                  </div>
-                  <div>
-                    <span class="provider-detail-label">状态</span>
-                    <span class="provider-detail-value">{{ provider.status_message || statusLabel(provider.status) }}</span>
+
+                <div class="provider-detail-section">
+                  <div class="provider-detail-section-title">连接配置</div>
+                  <div class="provider-detail-grid">
+                    <div v-if="provider.base_url" class="provider-detail-cell">
+                      <span class="provider-detail-label">Base URL</span>
+                      <span class="provider-detail-value provider-detail-mono">{{ provider.base_url }}</span>
+                    </div>
+                    <div v-if="provider.model" class="provider-detail-cell">
+                      <span class="provider-detail-label">模型</span>
+                      <span class="provider-detail-value provider-detail-mono">{{ provider.model }}</span>
+                    </div>
+                    <div class="provider-detail-cell">
+                      <span class="provider-detail-label">API Key</span>
+                      <span class="provider-detail-value">
+                        <span :class="['provider-key-indicator', provider.has_api_key ? 'has-key' : 'no-key']"></span>
+                        {{ provider.has_api_key ? '已安全存储' : '未设置' }}
+                      </span>
+                    </div>
+                    <div class="provider-detail-cell">
+                      <span class="provider-detail-label">连接方式</span>
+                      <span class="provider-detail-value">{{ connectionKindLabel(provider.connection_kind) }}</span>
+                    </div>
+                    <div v-if="provider.binary_path" class="provider-detail-cell">
+                      <span class="provider-detail-label">二进制路径</span>
+                      <span class="provider-detail-value provider-detail-mono">{{ provider.binary_path }}</span>
+                    </div>
+                    <div v-if="provider.server_url" class="provider-detail-cell">
+                      <span class="provider-detail-label">服务地址</span>
+                      <span class="provider-detail-value provider-detail-mono">{{ provider.server_url }}</span>
+                    </div>
+                    <div v-if="provider.home_path" class="provider-detail-cell">
+                      <span class="provider-detail-label">Home 路径</span>
+                      <span class="provider-detail-value provider-detail-mono">{{ provider.home_path }}</span>
+                    </div>
                   </div>
                 </div>
-                <div v-if="provider.capabilities.length > 0" class="model-capability-row">
-                  <span v-for="cap in provider.capabilities" :key="cap">{{ cap }}</span>
+
+                <div v-if="provider.capabilities.length > 0" class="provider-detail-section">
+                  <div class="provider-detail-section-title">能力</div>
+                  <div class="model-capability-row">
+                    <span v-for="cap in provider.capabilities" :key="cap" class="provider-cap-tag">{{ cap }}</span>
+                  </div>
                 </div>
+
+                <div v-if="provider.status_message" class="provider-status-note">
+                  <Terminal :size="14" />
+                  <span>{{ provider.status_message }}</span>
+                </div>
+
                 <div class="provider-detail-actions">
                   <UiButton variant="outline" size="sm" @click="openEditModal(provider)">
                     <Edit3 :size="14" />
-                    <span>编辑</span>
+                    <span>编辑配置</span>
                   </UiButton>
-                  <UiButton v-if="confirmDeleteId !== provider.id" variant="ghost" size="sm" @click="confirmDeleteId = provider.id">
+                  <UiButton variant="outline" size="sm" @click="toggleProviderEnabled(provider)">
+                    <component :is="provider.enabled ? X : Check" :size="14" />
+                    <span>{{ provider.enabled ? '禁用' : '启用' }}</span>
+                  </UiButton>
+                  <span class="provider-action-spacer"></span>
+                  <UiButton v-if="confirmDeleteId !== provider.id" variant="ghost" size="sm" class="provider-delete-btn" @click="confirmDeleteId = provider.id">
                     <Trash2 :size="14" />
                     <span>删除</span>
                   </UiButton>
                   <template v-else>
-                    <span class="delete-confirm-text">确认删除？</span>
-                    <UiButton variant="destructive" size="sm" :disabled="busy" @click="deleteProvider(provider.id)">确认</UiButton>
+                    <span class="delete-confirm-text">确认删除此 Provider？</span>
+                    <UiButton variant="destructive" size="sm" :disabled="busy" @click="deleteProvider(provider.id)">确认删除</UiButton>
                     <UiButton variant="ghost" size="sm" @click="confirmDeleteId = ''">取消</UiButton>
                   </template>
                 </div>
               </div>
+              </Transition>
             </div>
           </div>
           <p v-else class="quiet">{{ t('settings.noProvider') }}</p>
@@ -947,15 +1009,18 @@ loadAgentCenter()
       </div>
     </div>
 
+    <Transition name="modal-fade">
     <div v-if="showModal" class="model-provider-modal" @click.self="closeModal">
       <UiCard class="model-provider-modal-content">
         <template #header>
-          <div class="model-section-header">
-            <h3>
-              <span class="modal-brand-dot" :style="{ background: brandColor(providerForm.driver) }"></span>
-              {{ providerForm.id ? t('settings.editProviderTitle') : t('settings.newProvider') }}
-              — {{ currentTemplate ? t(currentTemplate.display_name_key) : providerForm.driver }}
-            </h3>
+          <div class="modal-header-row">
+            <div class="modal-header-left">
+              <span class="modal-provider-logo" :style="{ background: brandBg(providerForm.driver), borderColor: brandColor(providerForm.driver) + '40' }" v-html="currentTemplate?.icon ?? ''"></span>
+              <div class="modal-header-info">
+                <h3>{{ providerForm.id ? t('settings.editProviderTitle') : t('settings.newProvider') }}</h3>
+                <span class="modal-header-sub">{{ currentTemplate ? t(currentTemplate.display_name_key) : providerForm.driver }}</span>
+              </div>
+            </div>
             <UiButton variant="ghost" size="icon" @click="closeModal">
               <X :size="16" />
             </UiButton>
@@ -965,63 +1030,87 @@ loadAgentCenter()
         <template #content>
           <p v-if="currentTemplate" class="template-summary">{{ t(currentTemplate.summary_key) }}</p>
 
-          <div class="settings-field" style="margin-top:12px">
-            <UiLabel>{{ t('settings.displayName') }}</UiLabel>
-            <UiInput v-model="providerForm.display_name" />
-          </div>
-
-          <div class="model-form-grid" style="margin-top:12px">
-            <div v-if="formFields.base_url" class="settings-field">
-              <UiLabel>{{ t('settings.baseUrl') }}</UiLabel>
-              <UiInput v-model="providerForm.base_url" :placeholder="formPlaceholders.base_url" />
-            </div>
-            <div v-if="formFields.model" class="settings-field">
-              <UiLabel>{{ t('settings.modelLabel') }}</UiLabel>
-              <UiInput v-model="providerForm.model" :placeholder="formPlaceholders.model" />
+          <div class="modal-form-section">
+            <div class="modal-form-section-title">基本信息</div>
+            <div class="settings-field">
+              <UiLabel>{{ t('settings.displayName') }}</UiLabel>
+              <UiInput v-model="providerForm.display_name" />
             </div>
           </div>
 
-          <div v-if="formFields.api_key" class="settings-field" style="margin-top:12px">
-            <UiLabel>{{ t('settings.apiKey') }}</UiLabel>
-            <UiInput
-              v-model="providerForm.api_key"
-              type="password"
-              :placeholder="selectedProvider?.has_api_key ? t('settings.apiKeyStored') : formPlaceholders.api_key ?? t('settings.apiKeyNotSet')"
-            />
-          </div>
-
-          <div v-if="formFields.binary_path || formFields.home_path" class="model-form-grid" style="margin-top:12px">
-            <div v-if="formFields.binary_path" class="settings-field">
-              <UiLabel>{{ t('settings.binaryPath') }}</UiLabel>
-              <UiInput v-model="providerForm.binary_path" :placeholder="formPlaceholders.binary_path" />
-            </div>
-            <div v-if="formFields.home_path" class="settings-field">
-              <UiLabel>{{ t('settings.homePath') }}</UiLabel>
-              <UiInput v-model="providerForm.home_path" :placeholder="formPlaceholders.home_path" />
+          <div v-if="formFields.base_url || formFields.model" class="modal-form-section">
+            <div class="modal-form-section-title">连接参数</div>
+            <div class="model-form-grid">
+              <div v-if="formFields.base_url" class="settings-field">
+                <UiLabel>{{ t('settings.baseUrl') }}</UiLabel>
+                <UiInput v-model="providerForm.base_url" :placeholder="formPlaceholders.base_url" />
+              </div>
+              <div v-if="formFields.model" class="settings-field">
+                <UiLabel>{{ t('settings.modelLabel') }}</UiLabel>
+                <UiInput v-model="providerForm.model" :placeholder="formPlaceholders.model" />
+              </div>
             </div>
           </div>
 
-          <div v-if="formFields.server_url || formFields.launch_args" class="model-form-grid" style="margin-top:12px">
-            <div v-if="formFields.server_url" class="settings-field">
-              <UiLabel>{{ t('settings.serverUrl') }}</UiLabel>
-              <UiInput v-model="providerForm.server_url" :placeholder="formPlaceholders.server_url" />
+          <div v-if="formFields.api_key" class="modal-form-section">
+            <div class="modal-form-section-title">认证</div>
+            <div class="settings-field">
+              <UiLabel>{{ t('settings.apiKey') }}</UiLabel>
+              <UiInput
+                v-model="providerForm.api_key"
+                type="password"
+                :placeholder="selectedProvider?.has_api_key ? t('settings.apiKeyStored') : formPlaceholders.api_key ?? t('settings.apiKeyNotSet')"
+              />
             </div>
-            <div v-if="formFields.launch_args" class="settings-field">
-              <UiLabel>{{ t('settings.launchArgs') }}</UiLabel>
-              <UiInput v-model="providerForm.launch_args" :placeholder="formPlaceholders.launch_args" />
+          </div>
+
+          <div v-if="formFields.binary_path || formFields.home_path" class="modal-form-section">
+            <div class="modal-form-section-title">本地路径</div>
+            <div class="model-form-grid">
+              <div v-if="formFields.binary_path" class="settings-field">
+                <UiLabel>{{ t('settings.binaryPath') }}</UiLabel>
+                <UiInput v-model="providerForm.binary_path" :placeholder="formPlaceholders.binary_path" />
+              </div>
+              <div v-if="formFields.home_path" class="settings-field">
+                <UiLabel>{{ t('settings.homePath') }}</UiLabel>
+                <UiInput v-model="providerForm.home_path" :placeholder="formPlaceholders.home_path" />
+              </div>
             </div>
           </div>
 
-          <div class="flex items-center gap-2" style="margin-top:12px">
-            <UiSwitch v-model="providerForm.enabled" />
-            <UiLabel>{{ t('settings.enabled') }}</UiLabel>
+          <div v-if="formFields.server_url || formFields.launch_args" class="modal-form-section">
+            <div class="modal-form-section-title">服务配置</div>
+            <div class="model-form-grid">
+              <div v-if="formFields.server_url" class="settings-field">
+                <UiLabel>{{ t('settings.serverUrl') }}</UiLabel>
+                <UiInput v-model="providerForm.server_url" :placeholder="formPlaceholders.server_url" />
+              </div>
+              <div v-if="formFields.launch_args" class="settings-field">
+                <UiLabel>{{ t('settings.launchArgs') }}</UiLabel>
+                <UiInput v-model="providerForm.launch_args" :placeholder="formPlaceholders.launch_args" />
+              </div>
+            </div>
           </div>
 
-          <div v-if="currentTemplate" class="model-capability-row">
-            <span v-for="capability in currentTemplate.capabilities" :key="capability">{{ capability }}</span>
+          <div class="modal-form-section">
+            <div class="modal-form-section-title">状态</div>
+            <div class="modal-enabled-row">
+              <div>
+                <strong>{{ t('settings.enabled') }}</strong>
+                <span class="modal-enabled-hint">{{ providerForm.enabled ? '启用后将参与模型路由' : '禁用后不会分配任何任务' }}</span>
+              </div>
+              <UiSwitch v-model="providerForm.enabled" />
+            </div>
           </div>
 
-          <div v-if="selectedProvider" class="model-provider-note">
+          <div v-if="currentTemplate" class="modal-capability-section">
+            <div class="modal-form-section-title">支持的能力</div>
+            <div class="model-capability-row">
+              <span v-for="capability in currentTemplate.capabilities" :key="capability" class="provider-cap-tag">{{ capability }}</span>
+            </div>
+          </div>
+
+          <div v-if="selectedProvider?.status_message" class="model-provider-note">
             <Terminal :size="14" />
             <span>{{ selectedProvider.status_message }}</span>
           </div>
@@ -1040,5 +1129,6 @@ loadAgentCenter()
         </template>
       </UiCard>
     </div>
+    </Transition>
   </div>
 </template>

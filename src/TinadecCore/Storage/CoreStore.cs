@@ -922,6 +922,28 @@ public sealed class CoreStore
             ?? throw new InvalidOperationException("Saved model provider instance was not found.");
     }
 
+    public bool DeleteModelProviderInstance(string providerInstanceId)
+    {
+        var existing = GetStoredModelProviderInstance(providerInstanceId);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            // Remove model routes that reference this provider
+            Execute(connection, "delete from model_routes where provider_instance_id = $provider_instance_id",
+                command => command.Parameters.AddWithValue("$provider_instance_id", providerInstanceId));
+            // Remove the provider instance itself
+            Execute(connection, "delete from model_provider_instances where id = $id",
+                command => command.Parameters.AddWithValue("$id", providerInstanceId));
+        }
+
+        return true;
+    }
+
     public IReadOnlyList<ModelRouteDto> ListModelRoutes()
     {
         using var connection = OpenConnection();

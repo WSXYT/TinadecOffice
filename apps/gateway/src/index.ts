@@ -174,6 +174,13 @@ const app = new Elysia({ adapter: node() })
     setStatus(set, result.status);
     return result.data;
   })
+  .delete('/api/v1/model-providers/:providerInstanceId', async ({ params, set }) => {
+    const result = await proxyJson(`/api/v1/model-providers/${params.providerInstanceId}`, {
+      method: 'DELETE'
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
   .get('/api/v1/model-routes', async ({ set }) => {
     const result = await proxyJson('/api/v1/model-routes');
     setStatus(set, result.status);

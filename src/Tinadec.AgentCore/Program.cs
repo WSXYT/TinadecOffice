@@ -334,6 +334,30 @@ app.MapPut("/api/v1/model-providers/{providerInstanceId}", (string providerInsta
     return Results.Ok(saved);
 });
 
+app.MapDelete("/api/v1/model-providers/{providerInstanceId}", (string providerInstanceId, CoreStore coreStore, EventHub events) =>
+{
+    var existing = coreStore.GetStoredModelProviderInstance(providerInstanceId);
+    if (existing is null)
+    {
+        return Results.NotFound(new TinadecError("MODEL_PROVIDER_NOT_FOUND", "Model provider instance was not found."));
+    }
+
+    var deleted = coreStore.DeleteModelProviderInstance(providerInstanceId);
+    if (!deleted)
+    {
+        return Results.NotFound(new TinadecError("MODEL_PROVIDER_NOT_FOUND", "Model provider instance was not found."));
+    }
+
+    Publish(events, coreStore.AppendNewEvent("model.provider.deleted", null, new JsonObject
+    {
+        ["provider_instance_id"] = providerInstanceId,
+        ["driver"] = existing.Driver,
+        ["connection_kind"] = existing.ConnectionKind
+    }, ["model.provider"]));
+
+    return Results.NoContent();
+});
+
 app.MapGet("/api/v1/model-routes", (CoreStore coreStore) =>
 {
     return Results.Ok(coreStore.ListModelRoutes());
