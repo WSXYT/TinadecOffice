@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.Versioning;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class SecretProtector
 {
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("TinadecCode.AgentCore.v1");
+    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("TinadecCode.Core.v1");
+    private static readonly byte[] LegacyEntropy = Convert.FromBase64String("VGluYWRlY0NvZGUuQWdlbnRDb3JlLnYx");
 
     public string Protect(string secret)
     {
@@ -38,7 +40,7 @@ public sealed class SecretProtector
             }
 
             var bytes = Convert.FromBase64String(protectedSecret["dpapi:".Length..]);
-            var unprotected = ProtectedData.Unprotect(bytes, Entropy, DataProtectionScope.CurrentUser);
+            var unprotected = UnprotectDpapi(bytes);
             return Encoding.UTF8.GetString(unprotected);
         }
 
@@ -48,5 +50,18 @@ public sealed class SecretProtector
         }
 
         return protectedSecret;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static byte[] UnprotectDpapi(byte[] bytes)
+    {
+        try
+        {
+            return ProtectedData.Unprotect(bytes, Entropy, DataProtectionScope.CurrentUser);
+        }
+        catch (CryptographicException)
+        {
+            return ProtectedData.Unprotect(bytes, LegacyEntropy, DataProtectionScope.CurrentUser);
+        }
     }
 }

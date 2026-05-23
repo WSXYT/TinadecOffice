@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed record ExtensionDescriptor(
     string ExtensionId,

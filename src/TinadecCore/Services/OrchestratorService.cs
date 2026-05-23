@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
-using Tinadec.AgentCore.Storage;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
 using TinadecCore.Abstractions;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class OrchestratorService
 {
@@ -11,20 +11,23 @@ public sealed class OrchestratorService
     private readonly EventHub _events;
     private readonly IAgentWorkflowRuntime _workflowRuntime;
     private readonly IToolRegistry _tools;
-    private readonly ICodeToolClient _codeTools;
+    private readonly ICapabilityPolicy _capabilityPolicy;
+    private readonly IReadOnlyList<IToolInvocationAdapter> _invocationAdapters;
 
     public OrchestratorService(
         CoreStore store,
         EventHub events,
         IAgentWorkflowRuntime workflowRuntime,
         IToolRegistry tools,
-        ICodeToolClient codeTools)
+        ICapabilityPolicy capabilityPolicy,
+        IEnumerable<IToolInvocationAdapter> invocationAdapters)
     {
         _store = store;
         _events = events;
         _workflowRuntime = workflowRuntime;
         _tools = tools;
-        _codeTools = codeTools;
+        _capabilityPolicy = capabilityPolicy;
+        _invocationAdapters = invocationAdapters.ToArray();
     }
 
     public OrchestrationSnapshotDto CreateRunForMessage(string sessionId, string userMessageId, string userContent)
@@ -70,7 +73,7 @@ public sealed class OrchestratorService
             ["run_id"] = workflow.RunId,
             ["runtime"] = workflow.Runtime,
             ["step_count"] = workflow.Steps.Count
-        }, ["agent.workflow", "runtime.microsoft-agent-framework"]);
+        }, ["agent.workflow", "runtime.core-workflow"]);
 
         foreach (var result in snapshot.StepResults)
         {
@@ -130,7 +133,7 @@ public sealed class OrchestratorService
             foreach (var toolId in step.ToolIds)
             {
                 var tool = _tools.Resolve(toolId);
-                if (tool is null || tool.RequiresApproval || tool.Risk != "read-only")
+                if (tool is null || !_capabilityPolicy.IsReadOnly(tool))
                 {
                     continue;
                 }
@@ -145,7 +148,13 @@ public sealed class OrchestratorService
 
                 try
                 {
-                    var result = await _codeTools.ExecuteAsync(
+                    var adapter = _invocationAdapters.FirstOrDefault(item => item.CanInvoke(tool));
+                    if (adapter is null)
+                    {
+                        throw new InvalidOperationException($"No Core invocation adapter is registered for tool source '{tool.Source}'.");
+                    }
+
+                    var result = await adapter.InvokeAsync(
                         tool,
                         new CodeToolExecuteRequest(
                             snapshot.Run.SessionId,

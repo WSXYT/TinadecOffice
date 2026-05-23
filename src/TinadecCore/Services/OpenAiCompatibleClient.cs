@@ -1,10 +1,10 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Tinadec.AgentCore.Storage;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class OpenAiCompatibleClient(HttpClient httpClient)
 {
@@ -17,7 +17,7 @@ public sealed class OpenAiCompatibleClient(HttpClient httpClient)
         if (string.IsNullOrWhiteSpace(settings.BaseUrl) ||
             string.IsNullOrWhiteSpace(settings.Model))
         {
-            return "TinadecCode Agent Core is running. Add an OpenAI-compatible base URL and model to enable live model responses.";
+            return "TinadecCode Core is running. Add an OpenAI-compatible base URL and model to enable live model responses.";
         }
 
         using var request = BuildChatCompletionRequest(settings, apiKey, messages);

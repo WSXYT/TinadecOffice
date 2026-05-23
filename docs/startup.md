@@ -1,10 +1,10 @@
-# TinadecCode Local Startup Guide
+﻿# TinadecCode Local Startup Guide
 
 This document standardizes the local startup flow for Core, Gateway, and Desktop.
 
 ## Process Roles
 
-- **Tinadec Agent Core** runs at `http://127.0.0.1:48731`.
+- **Tinadec Core** runs at `http://127.0.0.1:48731`.
   It is the only state authority for projects, sessions, messages, approvals, model routes, extensions, agents, task graphs, context packs, and supervision findings.
   User chat turns are routed through the built-in Meeting Agent (`agent_meeting`) on the `planner` model route; other planning and execution agents are dispatched by Core rather than addressed directly from the input box.
 - **TinadecCode Gateway** runs at `http://127.0.0.1:48730`.
@@ -39,7 +39,7 @@ Start Core:
 ```powershell
 Remove-Item Env:Version -ErrorAction SilentlyContinue
 Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue
-dotnet run --project src/Tinadec.AgentCore/Tinadec.AgentCore.csproj --urls http://127.0.0.1:48731
+dotnet run --project src/TinadecCore/TinadecCore.csproj --urls http://127.0.0.1:48731
 ```
 
 Start Gateway:
@@ -74,7 +74,7 @@ Start-Process -FilePath powershell `
     '-ExecutionPolicy',
     'Bypass',
     '-Command',
-    "Set-Location 'D:\github\TinadecCode'; Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet run --project src/Tinadec.AgentCore/Tinadec.AgentCore.csproj --urls http://127.0.0.1:48731"
+    "Set-Location 'D:\github\TinadecCode'; Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet run --project src/TinadecCore/TinadecCore.csproj --urls http://127.0.0.1:48731"
   )
 
 Start-Process -FilePath powershell `
@@ -121,20 +121,22 @@ $agents | Select-Object id,name,layer,agent_type,enabled
 Expected built-in planning agents:
 
 - `agent_meeting`
-- `agent_tool_manager`
-- `agent_evolution_algorithm`
-- `agent_realtime_context_compressor`
+- `agent_tool_assistant`
+- `agent_evolver`
+- `agent_context_compressor`
 - `agent_supervisor`
+- `agent_skill_learner`
 
 Expected built-in execution agents:
 
-- `executor_planning_agent`
-- `executor_testing_agent`
-- `executor_search_agent`
-- `executor_code_locator_agent`
-- `executor_synthesis_model_agent`
-- `executor_multimodal_model_agent`
-- `executor_generation_model_agent`
+- `executor_task_planner`
+- `executor_test_multimodal`
+- `executor_search_specialist`
+- `executor_code_explorer`
+- `executor_file_finder`
+- `executor_git_manager`
+- `executor_code_writer`
+- `executor_designer`
 
 All built-in agents are seeded by Core as enabled by default. Desktop should render them from Gateway `/api/v1/agents`; the Settings page can open each agent's configuration from the three-dot menu and update its enabled state, orchestration mode, provider, and model route.
 
@@ -156,7 +158,7 @@ Remove-Item Env:Version -ErrorAction SilentlyContinue
 Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue
 ```
 
-If `dotnet build` cannot copy `TinadecCore.dll`, an old `Tinadec.AgentCore` process is locking the output. Stop that process or build to an isolated output directory.
+If `dotnet build` cannot copy `TinadecCore.dll`, an old `TinadecCore` process is locking the output. Stop that process or build to an isolated output directory.
 
 ## Test Commands
 
@@ -171,7 +173,7 @@ Run Core tests only:
 ```powershell
 Remove-Item Env:Version -ErrorAction SilentlyContinue
 Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue
-dotnet test tests/Tinadec.AgentCore.Tests/Tinadec.AgentCore.Tests.csproj -v minimal
+dotnet test tests/TinadecCore.Tests/TinadecCore.Tests.csproj -v minimal
 ```
 
 Run frontend and Gateway tests/builds:

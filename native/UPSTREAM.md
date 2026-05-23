@@ -4,9 +4,9 @@ TinadecCode uses Codex Rust as a mature upstream capability source while keeping
 
 ## Layering Rule
 
-- Core owns general agent runtime capabilities that TinadecDoc, TinadecData, and TinadecCode all need.
-- Code owns programming-domain capabilities such as search, patch, sandbox, shell, watcher, tests, and review formatting.
-- Rust is an implementation and ecosystem source, not a layering rule.
+- Core owns the portable agent framework, runtime state, orchestration, approvals, capability discovery, and tool policy.
+- Codex Rust is the preferred upstream implementation source for mature programming-domain primitives such as search, patch, sandbox, shell, watcher, tests, and review formatting.
+- Glue adapters translate between stable Core contracts and upstream Codex Rust crates or processes. Rust is an implementation source, not a product layering rule.
 
 ## Upstream Source
 
@@ -17,8 +17,8 @@ TinadecCode uses Codex Rust as a mature upstream capability source while keeping
 - Optional vendored subtree path: `native/codex-src`
 - Pinning rule: record the exact upstream commit before replacing any stub implementation.
 
-The first native Code-layer integration uses a local path dependency on
-`codex-file-search`, keeping the Tinadec-facing JSON contract stable while the
+The first native Codex glue integration uses a local path dependency on
+`codex-file-search`, keeping the Core-facing JSON contract stable while the
 implementation moves to Codex Rust. If the upstream checkout is relocated, update
 the path dependency in `native/glue/code-native/Cargo.toml` or vendor the exact
 commit with:
@@ -27,4 +27,4 @@ commit with:
 git subtree add --prefix native/codex-src https://github.com/openai/codex.git <commit-sha> --squash
 ```
 
-Then replace the implementations under `native/glue/*` incrementally, keeping the public Core/Code contracts stable.
+Then replace the implementations under `native/glue/*` incrementally, keeping the public Core contracts stable.

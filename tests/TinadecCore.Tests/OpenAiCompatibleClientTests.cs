@@ -1,9 +1,9 @@
 using System.Net;
-using Tinadec.AgentCore.Services;
-using Tinadec.AgentCore.Storage;
+using TinadecCore.Services;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Tests;
+namespace TinadecCore.Tests;
 
 public sealed class OpenAiCompatibleClientTests
 {

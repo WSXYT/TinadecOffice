@@ -1,11 +1,11 @@
 using Tinadec.Contracts.Models;
 using TinadecCore.Abstractions;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class AgentWorkflowRuntime(IToolRegistry tools) : IAgentWorkflowRuntime
 {
-    public const string RuntimeName = "microsoft-agent-framework";
+    public const string RuntimeName = "tinadec-core-workflow";
 
     public AgentWorkflowPlanDto Compile(OrchestrationSnapshotDto snapshot)
     {

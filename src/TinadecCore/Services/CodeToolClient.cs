@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using Tinadec.Contracts.Models;
 using TinadecCore.Abstractions;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class CodeToolClient(HttpClient httpClient) : ICodeToolClient
 {
@@ -11,9 +11,10 @@ public sealed class CodeToolClient(HttpClient httpClient) : ICodeToolClient
         CodeToolExecuteRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(tool.Source, "code", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(tool.Source, "codex-rust", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(tool.Source, "code", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"Tool '{tool.Id}' is not a Code-layer tool.");
+            throw new InvalidOperationException($"Tool '{tool.Id}' is not provided by the Codex glue adapter.");
         }
 
         using var response = await httpClient.PostAsJsonAsync(tool.ExecuteEndpoint, request, TinadecJson.Options, cancellationToken);

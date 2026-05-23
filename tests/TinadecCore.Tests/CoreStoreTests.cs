@@ -1,9 +1,9 @@
-using System.Text.Json.Nodes;
-using Tinadec.AgentCore.Services;
-using Tinadec.AgentCore.Storage;
+﻿using System.Text.Json.Nodes;
+using TinadecCore.Services;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Tests;
+namespace TinadecCore.Tests;
 
 public sealed class CoreStoreTests
 {
@@ -136,7 +136,7 @@ public sealed class CoreStoreTests
         store.Initialize();
 
         var evolutionAgent = Assert.Single(store.ListAgentProfiles(), agent => agent.Id == "agent_evolver");
-        Assert.Equal("进化演化智能体", evolutionAgent.Name);
+        Assert.Equal("Evolution Agent", evolutionAgent.Name);
         Assert.Equal("evolver", evolutionAgent.AgentType);
         Assert.All(store.ListAgentCandidates(), candidate => Assert.Equal("proposed", candidate.Status));
     }
@@ -150,14 +150,13 @@ public sealed class CoreStoreTests
 
         var agents = store.ListAgentProfiles();
 
-        // Layer 1 · Planning 主动智能体
-        Assert.Contains(agents, agent => agent.Id == "agent_meeting" && agent.Layer == "planning");
+        // Layer 1 路 Planning 涓诲姩鏅鸿兘浣?        Assert.Contains(agents, agent => agent.Id == "agent_meeting" && agent.Layer == "planning");
         Assert.Contains(agents, agent => agent.Id == "agent_tool_assistant" && agent.Layer == "planning");
         Assert.Contains(agents, agent => agent.Id == "agent_evolver" && agent.Layer == "planning");
         Assert.Contains(agents, agent => agent.Id == "agent_context_compressor" && agent.Layer == "planning");
         Assert.Contains(agents, agent => agent.Id == "agent_supervisor" && agent.Layer == "planning");
         Assert.Contains(agents, agent => agent.Id == "agent_skill_learner" && agent.Layer == "planning");
-        // Layer 2 · Execution 被动执行类智能体
+        // Layer 2 路 Execution 琚姩鎵ц绫绘櫤鑳戒綋
         Assert.Contains(agents, agent => agent.Id == "executor_task_planner" && agent.Layer == "execution");
         Assert.Contains(agents, agent => agent.Id == "executor_test_multimodal" && agent.Layer == "execution");
         Assert.Contains(agents, agent => agent.Id == "executor_search_specialist" && agent.Layer == "execution");
@@ -177,14 +176,14 @@ public sealed class CoreStoreTests
 
         var tools = registry.ListTools("programming");
 
-        Assert.Contains(tools, tool => tool.Id == "search_files" && tool.Source == "code" && !tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "glob_search" && tool.Source == "code" && !tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "read_file" && tool.Source == "code" && !tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "list_directory" && tool.Source == "code" && !tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "grep_content" && tool.Source == "code" && !tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "sandbox_exec" && tool.Source == "code" && tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "apply_patch" && tool.Source == "code" && tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "review_format" && tool.Source == "code" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "search_files" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "glob_search" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "read_file" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "list_directory" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "grep_content" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "sandbox_exec" && tool.Source == "codex-rust" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "apply_patch" && tool.Source == "codex-rust" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "review_format" && tool.Source == "codex-rust" && !tool.RequiresApproval);
         Assert.All(tools, tool => Assert.Equal("programming", tool.Domain));
     }
 

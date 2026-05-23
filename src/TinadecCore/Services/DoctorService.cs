@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class DoctorService
 {
@@ -11,10 +11,10 @@ public sealed class DoctorService
         var checks = new List<DoctorCheckDto>
         {
             Probe("git", "--version", "Git is needed for diff and repository workflows."),
-            Probe("dotnet", "--version", ".NET is needed to run the Agent Core."),
+            Probe("dotnet", "--version", ".NET is needed to run Core."),
             Probe("node", "--version", "Node is needed for the gateway and desktop shell."),
             Probe("cargo", "--version", "Rust/Cargo is needed to build Codex Rust native glue."),
-            Probe("rustc", "--version", "Rustc is needed to compile Core and Code native glue crates.")
+            Probe("rustc", "--version", "Rustc is needed to compile Core and Codex native glue crates.")
         };
 
         return new DoctorReportDto(

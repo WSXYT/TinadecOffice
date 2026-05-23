@@ -2,11 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Data.Sqlite;
-using Tinadec.AgentCore.Services;
+using TinadecCore.Services;
 using Tinadec.Contracts.Events;
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Storage;
+namespace TinadecCore.Storage;
 
 public sealed class CoreStore
 {
@@ -337,7 +337,7 @@ public sealed class CoreStore
             }
             catch (SqliteException)
             {
-                // Column already exists â€” ignore
+                // Column already exists â€?ignore
             }
 
             Execute(connection, """

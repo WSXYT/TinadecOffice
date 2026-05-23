@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Tinadec.Contracts.Models;
 
 public sealed record ProjectDto(
@@ -79,7 +81,8 @@ public sealed record DoctorCheckDto(
 
 public sealed record DoctorReportDto(
     string Platform,
-    string AgentCoreVersion,
+    [property: JsonPropertyName("agent_core_version")]
+    string CoreVersion,
     IReadOnlyList<DoctorCheckDto> Checks);
 
 public sealed record ExtensionSourceDto(

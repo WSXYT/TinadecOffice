@@ -1,27 +1,30 @@
-namespace Tinadec.AgentCore.Tests;
+﻿namespace TinadecCore.Tests;
 
 public sealed class ArchitectureBoundaryTests
 {
     [Fact]
-    public void TinadecCoreIsAPlainLibraryWithoutUiOrBffDependencies()
+    public void TinadecCoreIsTheOnlyCSharpCoreRuntime()
     {
         var root = FindRepoRoot();
         var project = File.ReadAllText(Path.Combine(root, "src", "TinadecCore", "TinadecCore.csproj"));
+        var solution = File.ReadAllText(Path.Combine(root, "TinadecCode.slnx"));
 
-        Assert.Contains("Microsoft.NET.Sdk", project);
-        Assert.DoesNotContain("Microsoft.NET.Sdk.Web", project);
+        Assert.Contains("Microsoft.NET.Sdk.Web", project);
+        Assert.Contains("src/TinadecCore/TinadecCore.csproj", solution);
+        Assert.DoesNotContain("Tinadec." + "Agent" + "Core", solution);
         Assert.DoesNotContain("Elysia", project, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Electron", project, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Vue", project, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void AgentCoreRuntimeDependsOnTinadecCore()
+    public void CoreArchitectureDocsDoNotDescribeLegacyRuntimeAsASeparateLayer()
     {
         var root = FindRepoRoot();
-        var project = File.ReadAllText(Path.Combine(root, "src", "Tinadec.AgentCore", "Tinadec.AgentCore.csproj"));
+        var architecture = File.ReadAllText(Path.Combine(root, "docs", "architecture.md"));
 
-        Assert.Contains(@"..\TinadecCore\TinadecCore.csproj", project);
+        Assert.DoesNotContain("Agent " + "Core", architecture, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Tinadec." + "Agent" + "Core", architecture, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FindRepoRoot()

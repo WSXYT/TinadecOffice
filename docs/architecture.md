@@ -1,19 +1,18 @@
 # TinadecCode Architecture
 
-TinadecCode is split into three product projects:
+TinadecCode is split into four product responsibilities:
 
-- `src/TinadecCore`: independent C# core library. It owns sessions, messages, approvals, model providers, model routing, events, secrets, permissions, and SQLite persistence.
-- `apps/gateway`: TinadecCode Elysia BFF/API layer. It exposes `/api/v1/*`, OpenAPI docs at `/docs`, and proxies to the C# core runtime.
+- `src/TinadecCore`: portable C# Core framework and runtime. It owns agents, runs, task graphs, context packs, supervision, approvals, model routes, events, secrets, permissions, capability discovery, and SQLite persistence.
+- `native/glue/*`: Codex Rust glue. Core treats Codex as the mature kernel/tool capability source and calls it through stable adapters instead of reimplementing file search, patch, sandbox, and related primitives.
+- `apps/gateway`: TinadecCode Elysia BFF/API layer. It exposes `/api/v1/*`, OpenAPI docs at `/docs`, and proxies to the Core runtime.
 - `apps/desktop`: TinadecCode Desktop, built with Electron + Vue. The renderer receives only the `window.tinadec.*` preload API and talks to TinadecCode over HTTP/SSE.
 
-The C# core is the only state authority. TinadecCode/Elysia must not keep session state, approval decisions, model routing state, or provider lifecycle state.
-
-`src/Tinadec.AgentCore` is the local C# runtime wrapper for the core library. It hosts the Core HTTP surface used by TinadecCode during the MVP, but business logic must stay in `src/TinadecCore`.
+Core is the only state authority. Gateway and Desktop must not keep session state, approval decisions, model routing state, tool policy state, or provider lifecycle state.
 
 ## Default Ports
 
 - TinadecCode Elysia API: `http://127.0.0.1:48730`
-- TinadecCore runtime wrapper: `http://127.0.0.1:48731`
+- TinadecCore runtime: `http://127.0.0.1:48731`
 - Vite renderer: `http://127.0.0.1:5173`
 
 ## Event Envelope

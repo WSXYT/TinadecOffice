@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public static class TinadecJson
 {

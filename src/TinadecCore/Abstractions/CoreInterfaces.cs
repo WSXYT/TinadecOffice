@@ -1,5 +1,6 @@
 using Tinadec.Contracts.Events;
 using Tinadec.Contracts.Models;
+using Tinadec.Contracts.Security;
 
 namespace TinadecCore.Abstractions;
 
@@ -89,6 +90,35 @@ public interface IOrchestrationRuntime
 public interface IAgentWorkflowRuntime
 {
     AgentWorkflowPlanDto Compile(OrchestrationSnapshotDto snapshot);
+}
+
+public interface ICapabilityProvider
+{
+    string Id { get; }
+    IReadOnlyList<ToolDescriptorDto> ListCapabilities();
+}
+
+public interface IRuntimeKernelAdapter
+{
+    string Id { get; }
+    string DisplayName { get; }
+    IReadOnlyList<string> Capabilities { get; }
+}
+
+public interface IToolInvocationAdapter
+{
+    string Id { get; }
+    bool CanInvoke(ToolDescriptorDto tool);
+    Task<CodeToolExecuteResultDto> InvokeAsync(
+        ToolDescriptorDto tool,
+        CodeToolExecuteRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+public interface ICapabilityPolicy
+{
+    ApprovalRequirement Evaluate(string permissionMode, ToolDescriptorDto tool);
+    bool IsReadOnly(ToolDescriptorDto tool);
 }
 
 public interface IToolRegistry

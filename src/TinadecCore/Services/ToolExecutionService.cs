@@ -1,17 +1,17 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Tinadec.AgentCore.Storage;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
-using Tinadec.Contracts.Security;
 using TinadecCore.Abstractions;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public sealed class ToolExecutionService(
     CoreStore store,
     EventHub events,
     IToolRegistry tools,
-    ICodeToolClient codeTools)
+    ICapabilityPolicy capabilityPolicy,
+    IEnumerable<IToolInvocationAdapter> invocationAdapters)
 {
     public async Task<ToolExecutionResponseDto?> ExecuteAsync(
         string runId,
@@ -40,7 +40,7 @@ public sealed class ToolExecutionService(
             ["requires_approval"] = tool.RequiresApproval
         }, ["tool.execution"]);
 
-        var approvalRequirement = PermissionPolicy.Evaluate(PermissionMode.Approval, MapRisk(tool.Risk));
+        var approvalRequirement = capabilityPolicy.Evaluate("approval", tool);
         if (tool.RequiresApproval || approvalRequirement.Required)
         {
             var approval = ResolveApprovedApproval(normalizedRequest.ApprovalId);
@@ -66,7 +66,8 @@ public sealed class ToolExecutionService(
             normalizedRequest = normalizedRequest with { ApprovalId = approval.Id };
         }
 
-        var result = await codeTools.ExecuteAsync(tool, normalizedRequest, cancellationToken);
+        var result = await InvokeToolAsync(tool, normalizedRequest, cancellationToken);
+
         var stepResult = store.AddStepResult(
             runId,
             string.IsNullOrWhiteSpace(normalizedRequest.TaskNodeId) ? $"tool_{tool.Id}" : normalizedRequest.TaskNodeId,
@@ -103,15 +104,40 @@ public sealed class ToolExecutionService(
             : null;
     }
 
-    private static ToolRisk MapRisk(string risk) => risk.ToLowerInvariant() switch
+    private async Task<CodeToolExecuteResultDto> InvokeToolAsync(
+        ToolDescriptorDto tool,
+        CodeToolExecuteRequest request,
+        CancellationToken cancellationToken)
     {
-        "read-only" => ToolRisk.ReadOnly,
-        "workspace-write" => ToolRisk.WriteFile,
-        "shell" => ToolRisk.Shell,
-        "git-write" => ToolRisk.GitWrite,
-        "external-url" => ToolRisk.ExternalUrl,
-        _ => ToolRisk.ExternalUrl
-    };
+        var adapter = invocationAdapters.FirstOrDefault(item => item.CanInvoke(tool));
+        if (adapter is null)
+        {
+            return new CodeToolExecuteResultDto(
+                tool.Id,
+                "failed",
+                $"No Core invocation adapter is registered for tool source '{tool.Source}'.",
+                ["adapter missing", tool.Source],
+                new Dictionary<string, object?>(),
+                false,
+                null);
+        }
+
+        try
+        {
+            return await adapter.InvokeAsync(tool, request, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return new CodeToolExecuteResultDto(
+                tool.Id,
+                "failed",
+                $"Tool adapter '{adapter.Id}' failed: {ex.Message}",
+                ["adapter failed", adapter.Id],
+                new Dictionary<string, object?>(),
+                false,
+                null);
+        }
+    }
 
     private static string SummarizeCommand(string toolId, IReadOnlyDictionary<string, object?>? arguments)
     {

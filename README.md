@@ -4,7 +4,8 @@ TinadecCode is a Windows-first intelligent agent desktop workbench for individua
 
 This MVP implements the foundation from the research plan:
 
-- `src/TinadecCore`: independent C# core library and state authority.
+- `src/TinadecCore`: portable C# Core framework, runtime, orchestration layer, and state authority.
+- `native/glue/*`: Codex Rust glue used by Core adapters for mature tool/kernel capabilities.
 - `apps/gateway`: TinadecCode Elysia BFF/API layer.
 - `apps/desktop`: TinadecCode Desktop with Electron + Vue.
 - Provider-instance based model center for API key, local server, and CLI model access.

@@ -1,6 +1,6 @@
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Storage;
+namespace TinadecCore.Storage;
 
 public sealed record StoredModelSettings(
     string BaseUrl,

@@ -1,6 +1,6 @@
 using Tinadec.Contracts.Models;
 
-namespace Tinadec.AgentCore.Services;
+namespace TinadecCore.Services;
 
 public static class ModelProviderCatalog
 {

@@ -1,6 +1,6 @@
-using Tinadec.AgentCore.Services;
+using TinadecCore.Services;
 
-namespace Tinadec.AgentCore.Tests;
+namespace TinadecCore.Tests;
 
 public sealed class SecretProtectorTests
 {

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Tinadec.AgentCore.Services;
-using Tinadec.AgentCore.Storage;
+using TinadecCore.Services;
+using TinadecCore.Storage;
 using Tinadec.Contracts.Events;
 using Tinadec.Contracts.Models;
 using TinadecCore.Abstractions;
@@ -29,6 +29,9 @@ builder.Services.AddSingleton<CoreStore>();
 builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient<OpenAiCompatibleClient>();
+builder.Services.AddSingleton<ICapabilityProvider, CodexCapabilityProvider>();
+builder.Services.AddSingleton<IRuntimeKernelAdapter, CodexRuntimeKernelAdapter>();
+builder.Services.AddSingleton<ICapabilityPolicy, CapabilityPolicyService>();
 builder.Services.AddSingleton<IToolRegistry, ToolRegistryService>();
 builder.Services.AddSingleton<IAgentWorkflowRuntime, AgentWorkflowRuntime>();
 builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
@@ -36,6 +39,7 @@ builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
     var gatewayUrl = Environment.GetEnvironmentVariable("TINADEC_GATEWAY_URL") ?? "http://127.0.0.1:48730";
     client.BaseAddress = new Uri(gatewayUrl.TrimEnd('/') + "/");
 });
+builder.Services.AddSingleton<IToolInvocationAdapter, CodexToolInvocationAdapter>();
 builder.Services.AddSingleton<DoctorService>();
 builder.Services.AddSingleton<OrchestratorService>();
 builder.Services.AddSingleton<ToolExecutionService>();
@@ -50,7 +54,7 @@ app.MapGet("/", () => Results.Redirect("/api/v1/health"));
 
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
-    name = "Tinadec Agent Core",
+    name = "Tinadec Core",
     status = "ok",
     version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "dev",
     time = DateTimeOffset.UtcNow
