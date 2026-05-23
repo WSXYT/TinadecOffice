@@ -30,7 +30,7 @@ const showDropdown = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 
-const currentPermission = computed(() => permissions.find(p => p.key === props.modelValue) ?? permissions[0])
+const currentPermission = computed(() => permissions.value.find(p => p.key === props.modelValue) ?? permissions.value[0])
 
 function updateDropdownPosition() {
   const trigger = triggerRef.value

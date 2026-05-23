@@ -8,6 +8,11 @@ import './styles.css'
 const app = createApp(App)
 app.use(router)
 app.use(i18n)
-app.mount('#app')
 
-useTheme()
+// 在挂载前初始化主题，确保 DOM 准备好后再应用样式
+const { applyInitialTheme } = useTheme()
+if (applyInitialTheme) {
+  applyInitialTheme()
+}
+
+app.mount('#app')  

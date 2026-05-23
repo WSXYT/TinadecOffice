@@ -33,7 +33,7 @@ const showDropdown = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 
-const currentMode = computed(() => modes.find(m => m.key === props.modelValue) ?? modes[0])
+const currentMode = computed(() => modes.value.find(m => m.key === props.modelValue) ?? modes.value[0])
 
 function updateDropdownPosition() {
   const trigger = triggerRef.value

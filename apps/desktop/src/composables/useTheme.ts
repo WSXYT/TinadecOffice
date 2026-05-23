@@ -1,5 +1,5 @@
 import { useStorage } from '@vueuse/core'
-import { watch } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 
 export type Theme = 'dark' | 'light' | 'system'
 
@@ -169,8 +169,23 @@ export const ACCENT_COLORS: AccentColor[] = [
   },
 ]
 
-const stored = useStorage<Theme>('tinadec-theme', 'dark')
-const storedAccentColor = useStorage<string>('tinadec-accent-color', 'blue')
+// 使用 ref 延迟初始化，避免在模块加载时访问 localStorage
+let stored: Ref<Theme> | null = null
+let storedAccentColor: Ref<string> | null = null
+
+function getStoredTheme(): Ref<Theme> {
+  if (!stored) {
+    stored = useStorage<Theme>('tinadec-theme', 'dark')
+  }
+  return stored
+}
+
+function getStoredAccentColor(): Ref<string> {
+  if (!storedAccentColor) {
+    storedAccentColor = useStorage<string>('tinadec-accent-color', 'blue')
+  }
+  return storedAccentColor
+}
 
 function getAccentColor(key: string): AccentColor {
   return ACCENT_COLORS.find((c) => c.key === key) ?? ACCENT_COLORS[0]
@@ -200,34 +215,43 @@ function applyAccentColor(colorKey: string) {
 }
 
 export function useTheme() {
-  applyTheme(stored.value)
-  applyAccentColor(storedAccentColor.value)
+  const themeRef = getStoredTheme()
+  const accentColorRef = getStoredAccentColor()
 
-  watch(stored, (val) => {
+  function applyInitialTheme() {
+    applyTheme(themeRef.value)
+    applyAccentColor(accentColorRef.value)
+  }
+
+  // 立即应用主题
+  applyInitialTheme()
+
+  watch(themeRef, (val) => {
     applyTheme(val)
-    applyAccentColor(storedAccentColor.value)
+    applyAccentColor(accentColorRef.value)
   })
 
-  watch(storedAccentColor, (val) => {
+  watch(accentColorRef, (val) => {
     applyAccentColor(val)
   })
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (stored.value === 'system') {
+    if (themeRef.value === 'system') {
       applyTheme('system')
-      applyAccentColor(storedAccentColor.value)
+      applyAccentColor(accentColorRef.value)
     }
   })
 
   return {
-    theme: stored,
+    theme: themeRef,
     setTheme: (t: Theme) => {
-      stored.value = t
+      themeRef.value = t
     },
-    accentColor: storedAccentColor,
+    accentColor: accentColorRef,
     setAccentColor: (key: string) => {
-      storedAccentColor.value = key
+      accentColorRef.value = key
     },
     accentColors: ACCENT_COLORS,
+    applyInitialTheme,
   }
 }

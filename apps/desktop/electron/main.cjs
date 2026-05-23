@@ -3,7 +3,7 @@ const path = require('node:path');
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
-function createWindow() {
+async function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -13,6 +13,7 @@ function createWindow() {
     title: 'TinadecCode',
     frame: false,
     autoHideMenuBar: true,
+    show: false, // 先不显示窗口，等加载完成后再显示
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -24,11 +25,18 @@ function createWindow() {
 
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
+  // 等待页面加载完成后再显示窗口
+  win.once('ready-to-show', () => {
+    win.show();
+    if (isDev) {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
+
   if (isDev) {
-    win.loadURL(process.env.VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools({ mode: 'detach' });
+    await win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    await win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
   return win;
@@ -65,12 +73,12 @@ ipcMain.on('tinadec:close', (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
 });
 
-app.whenReady().then(() => {
-  createWindow();
+app.whenReady().then(async () => {
+  await createWindow();
 
-  app.on('activate', () => {
+  app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      await createWindow();
     }
   });
 });
