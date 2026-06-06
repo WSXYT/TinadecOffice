@@ -104,6 +104,30 @@ public sealed class ModelContractTests
     }
 
     [Fact]
+    public void PromptFragmentContractUsesPlanFieldNames()
+    {
+        var fragment = new PromptFragmentDto(
+            "prompt_1",
+            "builtin.meeting.default",
+            "Meeting Agent Default",
+            "agent",
+            "agent_meeting",
+            "identity",
+            "Be useful.",
+            900,
+            true,
+            true,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch);
+
+        var json = JsonSerializer.Serialize(fragment, JsonOptions);
+
+        Assert.Contains("\"target_agent_id\":\"agent_meeting\"", json);
+        Assert.Contains("\"is_builtin\":true", json);
+        Assert.DoesNotContain("\"is_built_in\"", json);
+    }
+
+    [Fact]
     public void ProviderSpecificWireFieldsDoNotLeakToNormalizedDtoTopLevel()
     {
         var response = new ModelInvocationResponseDto(

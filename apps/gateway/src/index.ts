@@ -192,6 +192,55 @@ const app = new Elysia({ adapter: node() })
     setStatus(set, result.status);
     return result.data;
   })
+  .get('/api/v1/prompt-fragments', async ({ query, set }) => {
+    const params = new URLSearchParams();
+    if (query.scope) params.set('scope', String(query.scope));
+    if (query.target_agent_id) params.set('targetAgentId', String(query.target_agent_id));
+    if (query.category) params.set('category', String(query.category));
+    if (query.enabled !== undefined) params.set('enabled', String(query.enabled));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const result = await proxyJson(`/api/v1/prompt-fragments${suffix}`);
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .post('/api/v1/prompt-fragments', async ({ body, set }) => {
+    const result = await proxyJson('/api/v1/prompt-fragments', {
+      method: 'POST',
+      body: body as Record<string, unknown>
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .put('/api/v1/prompt-fragments/:fragmentId', async ({ params, body, set }) => {
+    const result = await proxyJson(`/api/v1/prompt-fragments/${params.fragmentId}`, {
+      method: 'PUT',
+      body: body as Record<string, unknown>
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .delete('/api/v1/prompt-fragments/:fragmentId', async ({ params, set }) => {
+    const result = await proxyJson(`/api/v1/prompt-fragments/${params.fragmentId}`, {
+      method: 'DELETE'
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .post('/api/v1/prompt-fragments/:fragmentId/clone', async ({ params, set }) => {
+    const result = await proxyJson(`/api/v1/prompt-fragments/${params.fragmentId}/clone`, {
+      method: 'POST'
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .post('/api/v1/prompt-context/preview', async ({ body, set }) => {
+    const result = await proxyJson('/api/v1/prompt-context/preview', {
+      method: 'POST',
+      body: body as Record<string, unknown>
+    });
+    setStatus(set, result.status);
+    return result.data;
+  })
   .post('/api/v1/code/tools/:toolId/execute', async ({ params, body, set }) => {
     const result = await executeCodeTool(params.toolId, body as CodeToolExecuteRequest);
     if (!result) {

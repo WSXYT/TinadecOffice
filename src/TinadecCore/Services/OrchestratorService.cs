@@ -12,6 +12,7 @@ public sealed class OrchestratorService
     private readonly EventHub _events;
     private readonly IAgentWorkflowRuntime _workflowRuntime;
     private readonly IModelInvocationRuntime _modelRuntime;
+    private readonly PromptContextService _promptContextService;
     private readonly IToolRegistry _tools;
     private readonly ICapabilityPolicy _capabilityPolicy;
     private readonly IReadOnlyList<IToolInvocationAdapter> _invocationAdapters;
@@ -21,6 +22,7 @@ public sealed class OrchestratorService
         EventHub events,
         IAgentWorkflowRuntime workflowRuntime,
         IModelInvocationRuntime modelRuntime,
+        PromptContextService promptContextService,
         IToolRegistry tools,
         ICapabilityPolicy capabilityPolicy,
         IEnumerable<IToolInvocationAdapter> invocationAdapters)
@@ -29,6 +31,7 @@ public sealed class OrchestratorService
         _events = events;
         _workflowRuntime = workflowRuntime;
         _modelRuntime = modelRuntime;
+        _promptContextService = promptContextService;
         _tools = tools;
         _capabilityPolicy = capabilityPolicy;
         _invocationAdapters = invocationAdapters.ToArray();
@@ -135,11 +138,17 @@ public sealed class OrchestratorService
             .SetTag(SpanAttrs.SessionId, snapshot.Run.SessionId)
             .SetTag(SpanAttrs.RoutePurpose, "planner");
 
+        var promptContext = await _promptContextService.BuildForRunAsync(
+            snapshot,
+            "agent_meeting",
+            cancellationToken: cancellationToken);
+
         var invocation = await _modelRuntime.InvokeAsync(
             snapshot.Run.SessionId,
             "planner",
             _store.ListMessages(snapshot.Run.SessionId),
-            cancellationToken);
+            cancellationToken,
+            promptContext.SystemPrompt);
 
         activity?
             .SetTag(SpanAttrs.ProviderId, invocation.Context.ProviderInstanceId)
@@ -149,11 +158,11 @@ public sealed class OrchestratorService
             .SetTag(SpanAttrs.ErrorCategory, invocation.ErrorCategory?.ToString())
             .SetTag(SpanAttrs.FallbackProviderId, IsFallback(invocation) ? invocation.ErrorProviderId : null);
 
-        PublishModelEvent("model.requested", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote"]);
+        PublishModelEvent("model.requested", snapshot.Run.SessionId, snapshot.Run.Id, invocation, promptContext, ["agent.meeting", "model.remote"]);
 
         if (!string.Equals(invocation.Status, "executed", StringComparison.OrdinalIgnoreCase))
         {
-            PublishModelEvent("model.failed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote", "model.error"]);
+            PublishModelEvent("model.failed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, promptContext, ["agent.meeting", "model.remote", "model.error"]);
             return new SessionModelOrchestrationResult(null, invocation);
         }
 
@@ -175,7 +184,7 @@ public sealed class OrchestratorService
             ["fallback_provider_selected"] = IsFallback(invocation)
         }, ["agent.message", "agent.meeting", "model.remote"]);
 
-        PublishModelEvent("model.completed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote"]);
+        PublishModelEvent("model.completed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, promptContext, ["agent.meeting", "model.remote"]);
         return new SessionModelOrchestrationResult(assistantMessage, invocation);
     }
 
@@ -305,6 +314,7 @@ public sealed class OrchestratorService
         string sessionId,
         string runId,
         ModelInvocationResultDto invocation,
+        PromptContextPreviewDto? promptContext,
         IReadOnlyList<string> capabilities)
     {
         var payload = new JsonObject
@@ -324,6 +334,14 @@ public sealed class OrchestratorService
             ["is_retryable"] = invocation.IsRetryable,
             ["fallback_provider_selected"] = IsFallback(invocation)
         };
+
+        if (promptContext is not null)
+        {
+            payload["prompt_fragment_ids"] = new JsonArray(promptContext.Fragments.Select(fragment => JsonValue.Create(fragment.Id)).ToArray());
+            payload["prompt_estimated_tokens"] = promptContext.EstimatedTokens;
+            payload["prompt_warning_count"] = promptContext.Warnings.Count;
+            payload["prompt_context_pack_ids"] = new JsonArray(promptContext.ContextPackIds.Select(id => JsonValue.Create(id)).ToArray());
+        }
 
         if (!string.IsNullOrWhiteSpace(invocation.ErrorProviderId))
         {

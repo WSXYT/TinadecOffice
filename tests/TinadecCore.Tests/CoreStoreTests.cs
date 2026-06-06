@@ -196,6 +196,76 @@ public sealed class CoreStoreTests
     }
 
     [Fact]
+    public void SeedsBuiltInPromptFragmentsForMeetingAgent()
+    {
+        var db = Path.Combine(Path.GetTempPath(), $"tinadec-test-{Guid.NewGuid():N}.db");
+        var store = new CoreStore(db);
+        store.Initialize();
+
+        var fragments = store.ListPromptFragments();
+
+        Assert.Contains(fragments, fragment => fragment.Id == "prompt_builtin_meeting_default" && fragment.TargetAgentId == "agent_meeting");
+        Assert.Contains(fragments, fragment => fragment.Id == "prompt_builtin_tool_approval_boundaries" && fragment.IsBuiltIn);
+        Assert.Contains(fragments, fragment => fragment.Id == "prompt_builtin_agent_mode" && fragment.Enabled);
+        Assert.Contains(fragments, fragment => fragment.Id == "prompt_builtin_context_pack_rules" && fragment.Category == "context");
+    }
+
+    [Fact]
+    public void BuiltInPromptFragmentsAreReadOnlyAndCloneable()
+    {
+        var db = Path.Combine(Path.GetTempPath(), $"tinadec-test-{Guid.NewGuid():N}.db");
+        var store = new CoreStore(db);
+        store.Initialize();
+        var builtIn = store.GetPromptFragment("prompt_builtin_meeting_default")!;
+
+        Assert.Throws<InvalidOperationException>(() => store.UpdatePromptFragment(
+            builtIn.Id,
+            new SavePromptFragmentRequest(
+                builtIn.Key,
+                builtIn.Title,
+                builtIn.Scope,
+                builtIn.TargetAgentId,
+                builtIn.Category,
+                "changed",
+                builtIn.Priority,
+                builtIn.Enabled)));
+
+        var clone = store.ClonePromptFragment(builtIn.Id);
+
+        Assert.NotNull(clone);
+        Assert.False(clone!.IsBuiltIn);
+        Assert.True(clone.Enabled);
+        Assert.Equal(builtIn.Content, clone.Content);
+        Assert.NotEqual(builtIn.Id, clone.Id);
+    }
+
+    [Fact]
+    public void AgentSystemPromptSavesAsCustomPromptFragment()
+    {
+        var db = Path.Combine(Path.GetTempPath(), $"tinadec-test-{Guid.NewGuid():N}.db");
+        var store = new CoreStore(db);
+        store.Initialize();
+        var meetingAgent = Assert.Single(store.ListAgentProfiles(), agent => agent.Id == "agent_meeting");
+
+        store.SaveAgentProfile(meetingAgent.Id, new SaveAgentProfileRequest(
+            meetingAgent.Name,
+            meetingAgent.Layer,
+            meetingAgent.AgentType,
+            meetingAgent.Mode,
+            meetingAgent.Description,
+            meetingAgent.ModelRoutePurpose,
+            meetingAgent.AllowedTools,
+            meetingAgent.Capabilities,
+            "custom override prompt",
+            meetingAgent.Enabled));
+
+        var overrideFragment = Assert.Single(store.ListPromptFragments(targetAgentId: meetingAgent.Id), fragment => fragment.Key == "agent.override.agent_meeting");
+        Assert.False(overrideFragment.IsBuiltIn);
+        Assert.Equal("custom override prompt", overrideFragment.Content);
+        Assert.Equal(1000, overrideFragment.Priority);
+    }
+
+    [Fact]
     public void CompilesTaskGraphIntoMicrosoftAgentWorkflowPlan()
     {
         var db = Path.Combine(Path.GetTempPath(), $"tinadec-test-{Guid.NewGuid():N}.db");

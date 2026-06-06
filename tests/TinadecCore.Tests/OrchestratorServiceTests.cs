@@ -76,6 +76,11 @@ public sealed class OrchestratorServiceTests
         Assert.Contains("Provider request timed out.", payloadText);
         Assert.DoesNotContain(rawPrompt, payloadText);
         Assert.DoesNotContain(rawCredential, payloadText);
+        Assert.Contains("prompt_fragment_ids", payloadText);
+        Assert.Contains("prompt_estimated_tokens", payloadText);
+        Assert.Contains("prompt_warning_count", payloadText);
+        Assert.DoesNotContain("TinadecCode prompt context", payloadText);
+        Assert.DoesNotContain("Meeting Agent Default", payloadText);
     }
 
     [Fact]
@@ -135,11 +140,16 @@ public sealed class OrchestratorServiceTests
             new NullCredentialResolver(),
             [fakeRuntime],
             store);
+        var promptContext = new PromptContextService(
+            store,
+            toolRegistry,
+            new NullPromptContextPlannerRuntime());
         var orchestrator = new OrchestratorService(
             store,
             events,
             new AgentWorkflowRuntime(toolRegistry),
             modelRuntime,
+            promptContext,
             toolRegistry,
             new AllowReadOnlyCapabilityPolicy(),
             []);
@@ -231,6 +241,16 @@ public sealed class OrchestratorServiceTests
         public string? ResolveApiKey(ResolvedModelInvocationContextDto context)
         {
             return null;
+        }
+    }
+
+    private sealed class NullPromptContextPlannerRuntime : IPromptContextPlannerRuntime
+    {
+        public Task<PromptContextPlanDto?> TryCreatePlanAsync(
+            PromptContextPlanningInput input,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<PromptContextPlanDto?>(null);
         }
     }
 

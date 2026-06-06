@@ -75,6 +75,23 @@ public sealed record SaveAgentProfileRequest(
 public sealed record UpdateAgentModeRequest(
     string Mode);
 
+public sealed record SavePromptFragmentRequest(
+    string Key,
+    string Title,
+    string Scope,
+    string? TargetAgentId,
+    string Category,
+    string Content,
+    int Priority,
+    bool Enabled);
+
+public sealed record PromptContextPreviewRequest(
+    string AgentId,
+    string? Mode,
+    string? SessionId,
+    string? RunId,
+    string? UserContent);
+
 public sealed record CodeToolExecuteRequest(
     string? SessionId,
     string? RunId,

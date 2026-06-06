@@ -211,6 +211,21 @@ public sealed record AgentCandidateDto(
     string Status,
     DateTimeOffset CreatedAt);
 
+public sealed record PromptFragmentDto(
+    string Id,
+    string Key,
+    string Title,
+    string Scope,
+    string? TargetAgentId,
+    string Category,
+    string Content,
+    int Priority,
+    bool Enabled,
+    [property: JsonPropertyName("is_builtin")]
+    bool IsBuiltIn,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
 public sealed record OrchestrationRunDto(
     string Id,
     string SessionId,
@@ -279,6 +294,35 @@ public sealed record ContextPackDto(
     double CompressionRatio,
     IReadOnlyList<string> EvidenceMap,
     DateTimeOffset CreatedAt);
+
+public sealed record PromptContextPreviewDto(
+    string AgentId,
+    string Mode,
+    IReadOnlyList<PromptFragmentDto> Fragments,
+    IReadOnlyList<string> ContextPackIds,
+    int EstimatedTokens,
+    string SystemPrompt,
+    IReadOnlyList<string> Warnings);
+
+public sealed record PromptContextPlanDto(
+    string RunId,
+    string AgentId,
+    string Strategy,
+    IReadOnlyList<string> SelectedFragmentIds,
+    string Summary,
+    string CreatedByAgentId);
+
+public sealed record PromptContextPlanningInput(
+    string SessionId,
+    string? RunId,
+    string AgentId,
+    string Mode,
+    IReadOnlyList<PromptFragmentDto> CandidateFragments,
+    IReadOnlyList<ContextPackDto> ContextPacks,
+    IReadOnlyList<TaskNodeDto> TaskNodes,
+    IReadOnlyList<ToolDescriptorDto> Tools,
+    string UserContent,
+    bool IsComplex);
 
 public sealed record SupervisionFindingDto(
     string Id,

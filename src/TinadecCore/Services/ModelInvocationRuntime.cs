@@ -15,13 +15,15 @@ public sealed class ModelInvocationRuntime(
         string sessionId,
         string purpose,
         IReadOnlyList<MessageDto> messages,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? systemPrompt = null)
     {
+        var requestMessages = BuildRequestMessages(sessionId, messages, systemPrompt);
         using var activity = TinadecActivitySource.Instance.StartActivity(SpanNames.ModelProviderInvocation);
         activity?
             .SetTag(SpanAttrs.SessionId, sessionId)
             .SetTag(SpanAttrs.RoutePurpose, purpose)
-            .SetTag(SpanAttrs.MessageCount, messages.Count);
+            .SetTag(SpanAttrs.MessageCount, requestMessages.Count);
 
         ModelInvocationResultDto? firstFailure = null;
         ModelInvocationResultDto? lastFailure = null;
@@ -32,7 +34,7 @@ public sealed class ModelInvocationRuntime(
             ModelInvocationResultDto result;
             try
             {
-                result = await InvokeResolvedProviderAsync(purpose, messages, cancellationToken);
+                result = await InvokeResolvedProviderAsync(purpose, requestMessages, cancellationToken);
             }
             catch (InvalidOperationException)
             {
@@ -175,6 +177,26 @@ public sealed class ModelInvocationRuntime(
             .SetTag(SpanAttrs.Status, result.Status)
             .SetTag(SpanAttrs.ErrorCategory, result.ErrorCategory?.ToString());
         return result;
+    }
+
+    private static IReadOnlyList<MessageDto> BuildRequestMessages(
+        string sessionId,
+        IReadOnlyList<MessageDto> messages,
+        string? systemPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            return messages;
+        }
+
+        var systemMessage = new MessageDto(
+            $"sys_{Guid.NewGuid():N}",
+            sessionId,
+            "system",
+            systemPrompt.Trim(),
+            DateTimeOffset.UtcNow);
+
+        return [systemMessage, .. messages];
     }
 
     private static void SetOutcomeTags(

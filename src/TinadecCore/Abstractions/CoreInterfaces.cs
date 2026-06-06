@@ -184,6 +184,14 @@ public interface IModelInvocationRuntime
         string sessionId,
         string purpose,
         IReadOnlyList<MessageDto> messages,
+        CancellationToken cancellationToken = default,
+        string? systemPrompt = null);
+}
+
+public interface IPromptContextPlannerRuntime
+{
+    Task<PromptContextPlanDto?> TryCreatePlanAsync(
+        PromptContextPlanningInput input,
         CancellationToken cancellationToken = default);
 }
 

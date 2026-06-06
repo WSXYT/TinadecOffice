@@ -273,6 +273,13 @@ public sealed class ProviderPolicyTests
             var workspace = Path.Combine(root, "workspace");
             Directory.CreateDirectory(workspace);
 
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "fake-cli.cmd");
+                File.WriteAllText(scriptPath, ConvertToWindowsScript(unixScript));
+                return new CliFixture(root, workspace, Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", $"/c \"{scriptPath}\"");
+            }
+
             var shellScriptPath = Path.Combine(root, "fake-cli.sh");
             File.WriteAllText(shellScriptPath, "#!/bin/sh\ncat >/dev/null\n" + unixScript + "\n");
             return new CliFixture(root, workspace, "/bin/sh", shellScriptPath);
@@ -284,6 +291,16 @@ public sealed class ProviderPolicyTests
             {
                 Directory.Delete(Root, recursive: true);
             }
+        }
+
+        private static string ConvertToWindowsScript(string unixScript)
+        {
+            if (unixScript.Contains("sleep 10", StringComparison.Ordinal))
+            {
+                return "@echo off\r\ntype nul >nul\r\nping -n 11 127.0.0.1 >nul\r\n";
+            }
+
+            return "@echo off\r\ntype nul >nul\r\n";
         }
     }
 }

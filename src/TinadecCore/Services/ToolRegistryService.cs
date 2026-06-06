@@ -174,12 +174,32 @@ public sealed class CodeCapabilityProvider : ICapabilityProvider
     public IReadOnlyList<ToolDescriptorDto> ListCapabilities() => CodeTools;
 }
 
+public sealed class PromptContextCapabilityProvider : ICapabilityProvider
+{
+    public string Id => "core";
+
+    private static readonly IReadOnlyList<ToolDescriptorDto> PromptContextTools =
+    [
+        new(
+            "prompt_context_resolve",
+            "Prompt Context Resolve",
+            "agent-context",
+            "core",
+            "read-only",
+            false,
+            "/api/v1/prompt-context/preview",
+            ["prompt.context.resolve", "prompt.fragment.select", "context_pack.rank"])
+    ];
+
+    public IReadOnlyList<ToolDescriptorDto> ListCapabilities() => PromptContextTools;
+}
+
 public sealed class ToolRegistryService : IToolRegistry
 {
     private readonly IReadOnlyList<ICapabilityProvider> _providers;
 
     public ToolRegistryService()
-        : this([new CodexCapabilityProvider(), new CodeCapabilityProvider()])
+        : this([new CodexCapabilityProvider(), new CodeCapabilityProvider(), new PromptContextCapabilityProvider()])
     {
     }
 

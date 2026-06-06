@@ -32,6 +32,7 @@ builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<ICapabilityProvider, CodexCapabilityProvider>();
 builder.Services.AddSingleton<ICapabilityProvider, CodeCapabilityProvider>();
+builder.Services.AddSingleton<ICapabilityProvider, PromptContextCapabilityProvider>();
 builder.Services.AddSingleton<IRuntimeKernelAdapter, CodexRuntimeKernelAdapter>();
 builder.Services.AddSingleton<ICapabilityPolicy, CapabilityPolicyService>();
 builder.Services.AddSingleton<IToolRegistry, ToolRegistryService>();
@@ -39,6 +40,8 @@ builder.Services.AddSingleton<IAgentWorkflowRuntime, AgentWorkflowRuntime>();
 builder.Services.AddSingleton<IModelRouteResolver, ModelRouteResolver>();
 builder.Services.AddSingleton<IModelCredentialResolver, ModelCredentialResolver>();
 builder.Services.AddSingleton<IModelInvocationRuntime, ModelInvocationRuntime>();
+builder.Services.AddSingleton<IPromptContextPlannerRuntime, ModelPromptContextPlannerRuntime>();
+builder.Services.AddSingleton<PromptContextService>();
 builder.Services.AddSingleton<IModelManagementService, ModelManagementService>();
 builder.Services.AddModelProviderModule<LocalHttpModule>();
 builder.Services.AddModelProviderModule<AnthropicModule>();
@@ -50,6 +53,7 @@ builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
     client.BaseAddress = new Uri(gatewayUrl.TrimEnd('/') + "/");
 });
 builder.Services.AddSingleton<IToolInvocationAdapter, CodexToolInvocationAdapter>();
+builder.Services.AddSingleton<IToolInvocationAdapter, CoreToolInvocationAdapter>();
 builder.Services.AddSingleton<DoctorService>();
 builder.Services.AddSingleton<OrchestratorService>();
 builder.Services.AddSingleton<ToolExecutionService>();
@@ -557,6 +561,117 @@ app.MapPost("/api/v1/acp/adapters/{adapterId}/probe", (string adapterId, CoreSto
 app.MapGet("/api/v1/agent-modes", (CoreStore coreStore) => Results.Ok(coreStore.ListAgentModes()));
 
 app.MapGet("/api/v1/tools", (IToolRegistry tools) => Results.Ok(tools.ListTools()));
+
+app.MapGet("/api/v1/prompt-fragments", (
+    string? scope,
+    string? targetAgentId,
+    string? category,
+    bool? enabled,
+    CoreStore coreStore) =>
+{
+    return Results.Ok(coreStore.ListPromptFragments(scope, targetAgentId, category, enabled));
+});
+
+app.MapPost("/api/v1/prompt-fragments", (SavePromptFragmentRequest request, CoreStore coreStore, EventHub events) =>
+{
+    try
+    {
+        var fragment = coreStore.CreatePromptFragment(request);
+        Publish(events, coreStore.AppendNewEvent("prompt.fragment.created", null, new JsonObject
+        {
+            ["fragment_id"] = fragment.Id,
+            ["scope"] = fragment.Scope,
+            ["category"] = fragment.Category,
+            ["target_agent_id"] = fragment.TargetAgentId
+        }, ["prompt.fragment"]));
+
+        return Results.Created($"/api/v1/prompt-fragments/{fragment.Id}", fragment);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new TinadecError("PROMPT_FRAGMENT_INVALID", ex.Message));
+    }
+});
+
+app.MapPut("/api/v1/prompt-fragments/{fragmentId}", (string fragmentId, SavePromptFragmentRequest request, CoreStore coreStore, EventHub events) =>
+{
+    try
+    {
+        var fragment = coreStore.UpdatePromptFragment(fragmentId, request);
+        if (fragment is null)
+        {
+            return Results.NotFound(new TinadecError("PROMPT_FRAGMENT_NOT_FOUND", "Prompt fragment was not found."));
+        }
+
+        Publish(events, coreStore.AppendNewEvent("prompt.fragment.updated", null, new JsonObject
+        {
+            ["fragment_id"] = fragment.Id,
+            ["enabled"] = fragment.Enabled,
+            ["priority"] = fragment.Priority
+        }, ["prompt.fragment"]));
+
+        return Results.Ok(fragment);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new TinadecError("PROMPT_FRAGMENT_READ_ONLY", ex.Message));
+    }
+});
+
+app.MapDelete("/api/v1/prompt-fragments/{fragmentId}", (string fragmentId, CoreStore coreStore, EventHub events) =>
+{
+    try
+    {
+        var deleted = coreStore.DeletePromptFragment(fragmentId);
+        if (!deleted)
+        {
+            return Results.NotFound(new TinadecError("PROMPT_FRAGMENT_NOT_FOUND", "Prompt fragment was not found."));
+        }
+
+        Publish(events, coreStore.AppendNewEvent("prompt.fragment.deleted", null, new JsonObject
+        {
+            ["fragment_id"] = fragmentId
+        }, ["prompt.fragment"]));
+
+        return Results.NoContent();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new TinadecError("PROMPT_FRAGMENT_READ_ONLY", ex.Message));
+    }
+});
+
+app.MapPost("/api/v1/prompt-fragments/{fragmentId}/clone", (string fragmentId, CoreStore coreStore, EventHub events) =>
+{
+    var fragment = coreStore.ClonePromptFragment(fragmentId);
+    if (fragment is null)
+    {
+        return Results.NotFound(new TinadecError("PROMPT_FRAGMENT_NOT_FOUND", "Prompt fragment was not found."));
+    }
+
+    Publish(events, coreStore.AppendNewEvent("prompt.fragment.cloned", null, new JsonObject
+    {
+        ["source_fragment_id"] = fragmentId,
+        ["fragment_id"] = fragment.Id
+    }, ["prompt.fragment"]));
+
+    return Results.Created($"/api/v1/prompt-fragments/{fragment.Id}", fragment);
+});
+
+app.MapPost("/api/v1/prompt-context/preview", async (
+    PromptContextPreviewRequest request,
+    PromptContextService promptContext,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await promptContext.PreviewAsync(request, cancellationToken: cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new TinadecError("PROMPT_CONTEXT_PREVIEW_INVALID", ex.Message));
+    }
+});
 
 app.MapGet("/api/v1/agents", (CoreStore coreStore) => Results.Ok(coreStore.ListAgentProfiles()));
 

@@ -15,6 +15,7 @@ Elysia TypeScript BFF/API layer. It proxies Core HTTP/SSE/debug routes and hosts
 ## CONVENTIONS
 - Package is ESM (`"type": "module"`); TypeScript uses `NodeNext`.
 - Keep Gateway thin. Core owns state, approvals, model routes, sessions, events, and persistence.
+- Prompt fragment CRUD and prompt context preview routes are Core proxies only. Do not add prompt selection, token budgeting, or prompt assembly logic in Gateway.
 - `/api/v1/code/tools` publishes Tool-layer Code-suite metadata with snake_case public DTO fields. `src/codeTools.ts` keeps internal spec fields camelCase and maps them at the API boundary.
 - Code-suite tools include project templates, runtime probe, bash-like environment, debugging, editor, Git worktree manager, and native-backed Codex primitives.
 - `project_templates` is read-only list/preview. `project_template_scaffold` writes files and must remain approval-gated; direct Gateway execution treats `approval_id` as the Core-supplied approval proof.

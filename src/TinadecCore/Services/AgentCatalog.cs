@@ -62,6 +62,16 @@ public static class AgentCatalog
             ["message.read", "event.read"],
             ["context.compact", "context.pattern.detect", "evidence.map", "summary.expand", "token_budget.guard"]),
         new(
+            "agent_prompt_context_engineer",
+            "Prompt Context Engineer Agent",
+            "planning",
+            "prompt-context-engineer",
+            "balanced",
+            "Plans prompt fragments, token budget, context packs, and evidence emphasis for Meeting Agent turns.",
+            "context",
+            ["prompt_context_resolve", "message.read", "event.read", "model.chat"],
+            ["prompt.context.plan", "prompt.fragment.select", "token_budget.guard", "context_pack.rank"]),
+        new(
             "agent_evolver",
             "Evolution Agent",
             "planning",

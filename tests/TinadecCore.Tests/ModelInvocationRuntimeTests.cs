@@ -169,6 +169,32 @@ public sealed class ModelInvocationRuntimeTests
         Assert.Contains("All model providers failed", result.Content, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task InvokeAsync_PrependsSystemPromptForProviderRuntime()
+    {
+        var store = CreateStore();
+        SaveProvider(store, OpenAiPrimaryProviderId, "OpenAI Primary", "gpt-5.4", priority: 10);
+        store.SaveModelRoute(ChatPurpose, OpenAiPrimaryProviderId, "gpt-5.4");
+        var providerRuntime = new FakeProviderRuntime(OpenAiPrimaryProviderId, success: true);
+        var runtime = new ModelInvocationRuntime(
+            new ModelRouteResolver(store),
+            new FakeCredentialResolver(),
+            [providerRuntime],
+            store);
+
+        await runtime.InvokeAsync(
+            "sess_1",
+            ChatPurpose,
+            [new MessageDto("msg_1", "sess_1", "user", "Hello", DateTimeOffset.UtcNow)],
+            systemPrompt: "system context");
+
+        Assert.NotNull(providerRuntime.LastMessages);
+        Assert.Equal("system", providerRuntime.LastMessages![0].Role);
+        Assert.Equal("system context", providerRuntime.LastMessages[0].Content);
+        Assert.Equal("user", providerRuntime.LastMessages[1].Role);
+    }
+
+
     private static CoreStore CreateStore(string? databasePath = null)
     {
         var store = new CoreStore(databasePath ?? CreateDatabasePath());
@@ -248,6 +274,7 @@ public sealed class ModelInvocationRuntimeTests
 
         public string Id => _runtimeId ?? _id;
         public bool WasCalled { get; private set; }
+        public IReadOnlyList<MessageDto>? LastMessages { get; private set; }
 
         public bool CanHandle(ResolvedModelInvocationContextDto context)
         {
@@ -261,6 +288,7 @@ public sealed class ModelInvocationRuntimeTests
             CancellationToken cancellationToken = default)
         {
             WasCalled = true;
+            LastMessages = messages;
             if (_success)
             {
                 return Task.FromResult(new ModelInvocationResultDto(

@@ -246,6 +246,35 @@ public sealed class CoreStore
                     created_at text not null
                 );
 
+                create table if not exists prompt_fragments (
+                    id text primary key,
+                    key text not null,
+                    title text not null,
+                    scope text not null,
+                    target_agent_id text null,
+                    category text not null,
+                    content text not null,
+                    priority integer not null,
+                    enabled integer not null,
+                    is_builtin integer not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create unique index if not exists idx_prompt_fragments_key_target
+                on prompt_fragments(key, coalesce(target_agent_id, ''));
+
+                create table if not exists prompt_context_plans (
+                    id text primary key,
+                    run_id text not null,
+                    agent_id text not null,
+                    strategy text not null,
+                    selected_fragment_ids_json text not null,
+                    summary text not null,
+                    created_by_agent_id text not null,
+                    created_at text not null
+                );
+
                 create table if not exists orchestration_runs (
                     id text primary key,
                     session_id text not null,
@@ -439,6 +468,7 @@ public sealed class CoreStore
             SeedBuiltinExtensions(connection);
             NormalizeLegacyAgentSeeds(connection);
             SeedBuiltinAgents(connection);
+            SeedBuiltinPromptFragments(connection);
         }
     }
 
@@ -1574,6 +1604,8 @@ public sealed class CoreStore
                 command.Parameters.AddWithValue("$enabled", request.Enabled ? 1 : 0);
                 command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
             });
+
+            UpsertAgentSystemPromptFragment(connection, agentId, request.SystemPrompt, now);
         }
 
         return ListAgentProfiles().FirstOrDefault(agent => agent.Id == agentId);
@@ -1618,6 +1650,233 @@ public sealed class CoreStore
         }
 
         return candidates;
+    }
+
+    public IReadOnlyList<PromptFragmentDto> ListPromptFragments(
+        string? scope = null,
+        string? targetAgentId = null,
+        string? category = null,
+        bool? enabled = null)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filters = new List<string>();
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            filters.Add("scope = $scope");
+            command.Parameters.AddWithValue("$scope", NormalizePromptScope(scope));
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetAgentId))
+        {
+            filters.Add("(target_agent_id is null or target_agent_id = $target_agent_id)");
+            command.Parameters.AddWithValue("$target_agent_id", targetAgentId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            filters.Add("category = $category");
+            command.Parameters.AddWithValue("$category", NormalizePlain(category, "general"));
+        }
+
+        if (enabled is not null)
+        {
+            filters.Add("enabled = $enabled");
+            command.Parameters.AddWithValue("$enabled", enabled.Value ? 1 : 0);
+        }
+
+        command.CommandText = $"""
+            select id, key, title, scope, target_agent_id, category, content, priority,
+                   enabled, is_builtin, created_at, updated_at
+            from prompt_fragments
+            {(filters.Count == 0 ? "" : $"where {string.Join(" and ", filters)}")}
+            order by priority desc, is_builtin asc, title
+            """;
+
+        using var reader = command.ExecuteReader();
+        var fragments = new List<PromptFragmentDto>();
+        while (reader.Read())
+        {
+            fragments.Add(ReadPromptFragment(reader));
+        }
+
+        return fragments;
+    }
+
+    public PromptFragmentDto? GetPromptFragment(string fragmentId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, key, title, scope, target_agent_id, category, content, priority,
+                   enabled, is_builtin, created_at, updated_at
+            from prompt_fragments
+            where id = $id
+            """;
+        command.Parameters.AddWithValue("$id", fragmentId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadPromptFragment(reader) : null;
+    }
+
+    public PromptFragmentDto CreatePromptFragment(SavePromptFragmentRequest request)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var fragment = new PromptFragmentDto(
+            $"prompt_{Guid.NewGuid():N}",
+            NormalizePromptKey(request.Key, $"custom.{Guid.NewGuid():N}"),
+            NormalizePlain(request.Title, "Custom prompt fragment"),
+            NormalizePromptScope(request.Scope),
+            NormalizeOptional(request.TargetAgentId),
+            NormalizePlain(request.Category, "general"),
+            NormalizePlain(request.Content, ""),
+            request.Priority,
+            request.Enabled,
+            false,
+            now,
+            now);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            InsertPromptFragment(connection, fragment, updateBuiltin: false);
+        }
+
+        return fragment;
+    }
+
+    public PromptFragmentDto? UpdatePromptFragment(string fragmentId, SavePromptFragmentRequest request)
+    {
+        var existing = GetPromptFragment(fragmentId);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        if (existing.IsBuiltIn)
+        {
+            throw new InvalidOperationException("Built-in prompt fragments are read-only. Clone the fragment before editing.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var updated = existing with
+        {
+            Key = NormalizePromptKey(request.Key, existing.Key),
+            Title = NormalizePlain(request.Title, existing.Title),
+            Scope = NormalizePromptScope(request.Scope),
+            TargetAgentId = NormalizeOptional(request.TargetAgentId),
+            Category = NormalizePlain(request.Category, existing.Category),
+            Content = NormalizePlain(request.Content, existing.Content),
+            Priority = request.Priority,
+            Enabled = request.Enabled,
+            UpdatedAt = now
+        };
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            InsertPromptFragment(connection, updated, updateBuiltin: false);
+        }
+
+        return GetPromptFragment(fragmentId);
+    }
+
+    public bool DeletePromptFragment(string fragmentId)
+    {
+        var existing = GetPromptFragment(fragmentId);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        if (existing.IsBuiltIn)
+        {
+            throw new InvalidOperationException("Built-in prompt fragments are read-only. Clone the fragment before deleting a custom copy.");
+        }
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, "delete from prompt_fragments where id = $id", command =>
+            {
+                command.Parameters.AddWithValue("$id", fragmentId);
+            });
+        }
+
+        return true;
+    }
+
+    public PromptFragmentDto? ClonePromptFragment(string fragmentId)
+    {
+        var source = GetPromptFragment(fragmentId);
+        if (source is null)
+        {
+            return null;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var cloneKey = NormalizePromptKey($"{source.Key}.custom.{Guid.NewGuid():N}", $"custom.{Guid.NewGuid():N}");
+        var clone = source with
+        {
+            Id = $"prompt_{Guid.NewGuid():N}",
+            Key = cloneKey,
+            Title = $"{source.Title} (Custom)",
+            Priority = source.Priority + 10,
+            Enabled = true,
+            IsBuiltIn = false,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            InsertPromptFragment(connection, clone, updateBuiltin: false);
+        }
+
+        return clone;
+    }
+
+    public PromptContextPlanDto SavePromptContextPlan(PromptContextPlanDto plan)
+    {
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into prompt_context_plans (
+                    id,
+                    run_id,
+                    agent_id,
+                    strategy,
+                    selected_fragment_ids_json,
+                    summary,
+                    created_by_agent_id,
+                    created_at
+                )
+                values (
+                    $id,
+                    $run_id,
+                    $agent_id,
+                    $strategy,
+                    $selected_fragment_ids_json,
+                    $summary,
+                    $created_by_agent_id,
+                    $created_at
+                )
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", $"prompt_plan_{Guid.NewGuid():N}");
+                command.Parameters.AddWithValue("$run_id", plan.RunId);
+                command.Parameters.AddWithValue("$agent_id", plan.AgentId);
+                command.Parameters.AddWithValue("$strategy", plan.Strategy);
+                command.Parameters.AddWithValue("$selected_fragment_ids_json", JsonSerializer.Serialize(plan.SelectedFragmentIds, TinadecJson.Options));
+                command.Parameters.AddWithValue("$summary", plan.Summary);
+                command.Parameters.AddWithValue("$created_by_agent_id", plan.CreatedByAgentId);
+                command.Parameters.AddWithValue("$created_at", DateTimeOffset.UtcNow.ToString("O"));
+            });
+        }
+
+        return plan;
     }
 
     public OrchestrationSnapshotDto CreateOrchestrationRun(string sessionId, string? userMessageId, string userContent)
@@ -1755,6 +2014,25 @@ public sealed class CoreStore
             ListStepResults(run.Id),
             ListContextPacks(sessionId).Where(pack => pack.RunId == run.Id).ToArray(),
             ListSupervisionFindings(sessionId).Where(finding => finding.RunId == run.Id).ToArray());
+    }
+
+    public OrchestrationSnapshotDto? GetOrchestrationSnapshotByRun(string runId)
+    {
+        var run = GetRun(runId);
+        if (run is null)
+        {
+            return null;
+        }
+
+        var graph = GetTaskGraph(run.Id);
+        return new OrchestrationSnapshotDto(
+            run,
+            graph,
+            ListTaskNodes(run.SessionId).Where(node => node.RunId == run.Id).ToArray(),
+            ListAgentAssignments(run.Id),
+            ListStepResults(run.Id),
+            ListContextPacks(run.SessionId).Where(pack => pack.RunId == run.Id).ToArray(),
+            ListSupervisionFindings(run.SessionId).Where(finding => finding.RunId == run.Id).ToArray());
     }
 
     public IReadOnlyList<OrchestrationRunDto> ListRuns(string sessionId)
@@ -2161,6 +2439,91 @@ public sealed class CoreStore
         });
     }
 
+    private static void InsertPromptFragment(SqliteConnection connection, PromptFragmentDto fragment, bool updateBuiltin)
+    {
+        var conflictUpdate = updateBuiltin
+            ? """
+                    title = excluded.title,
+                    scope = excluded.scope,
+                    target_agent_id = excluded.target_agent_id,
+                    category = excluded.category,
+                    content = excluded.content,
+                    priority = excluded.priority,
+                    enabled = excluded.enabled,
+                    is_builtin = excluded.is_builtin,
+                    updated_at = excluded.updated_at
+                """
+            : """
+                    key = excluded.key,
+                    title = excluded.title,
+                    scope = excluded.scope,
+                    target_agent_id = excluded.target_agent_id,
+                    category = excluded.category,
+                    content = excluded.content,
+                    priority = excluded.priority,
+                    enabled = excluded.enabled,
+                    updated_at = excluded.updated_at
+                """;
+
+        Execute(connection, $$"""
+            insert into prompt_fragments (
+                id, key, title, scope, target_agent_id, category, content, priority,
+                enabled, is_builtin, created_at, updated_at
+            )
+            values (
+                $id, $key, $title, $scope, $target_agent_id, $category, $content, $priority,
+                $enabled, $is_builtin, $created_at, $updated_at
+            )
+            on conflict(id) do update set
+            {{conflictUpdate}}
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", fragment.Id);
+            command.Parameters.AddWithValue("$key", fragment.Key);
+            command.Parameters.AddWithValue("$title", fragment.Title);
+            command.Parameters.AddWithValue("$scope", fragment.Scope);
+            command.Parameters.AddWithValue("$target_agent_id", (object?)fragment.TargetAgentId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$category", fragment.Category);
+            command.Parameters.AddWithValue("$content", fragment.Content);
+            command.Parameters.AddWithValue("$priority", fragment.Priority);
+            command.Parameters.AddWithValue("$enabled", fragment.Enabled ? 1 : 0);
+            command.Parameters.AddWithValue("$is_builtin", fragment.IsBuiltIn ? 1 : 0);
+            command.Parameters.AddWithValue("$created_at", fragment.CreatedAt.ToString("O"));
+            command.Parameters.AddWithValue("$updated_at", fragment.UpdatedAt.ToString("O"));
+        });
+    }
+
+    private static void UpsertAgentSystemPromptFragment(
+        SqliteConnection connection,
+        string agentId,
+        string? systemPrompt,
+        DateTimeOffset now)
+    {
+        var fragmentId = $"prompt_agent_override_{NormalizePromptKey(agentId, "agent")}";
+        if (string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            Execute(connection, "delete from prompt_fragments where id = $id and is_builtin = 0", command =>
+            {
+                command.Parameters.AddWithValue("$id", fragmentId);
+            });
+            return;
+        }
+
+        InsertPromptFragment(connection, new PromptFragmentDto(
+            fragmentId,
+            $"agent.override.{NormalizePromptKey(agentId, "agent")}",
+            "Agent system prompt override",
+            "agent",
+            agentId,
+            "override",
+            systemPrompt.Trim(),
+            1000,
+            true,
+            false,
+            now,
+            now), updateBuiltin: false);
+    }
+
     private static void InsertSupervisionFinding(SqliteConnection connection, SupervisionFindingDto finding)
     {
         Execute(connection, """
@@ -2401,6 +2764,71 @@ public sealed class CoreStore
                 command.Parameters.AddWithValue("$evaluation_notes_json", JsonSerializer.Serialize(candidate.EvaluationNotes, TinadecJson.Options));
                 command.Parameters.AddWithValue("$created_at", now.ToString("O"));
             });
+        }
+    }
+
+    private void SeedBuiltinPromptFragments(SqliteConnection connection)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var fragments = new[]
+        {
+            new PromptFragmentDto(
+                "prompt_builtin_meeting_default",
+                "builtin.meeting.default",
+                "Meeting Agent Default",
+                "agent",
+                "agent_meeting",
+                "identity",
+                "You are TinadecCode's Meeting Agent. Interpret the user's goal, keep success criteria explicit, create auditable task graphs, and route concrete work through Core-governed planning and execution agents.",
+                900,
+                true,
+                true,
+                now,
+                now),
+            new PromptFragmentDto(
+                "prompt_builtin_tool_approval_boundaries",
+                "builtin.tool.approval-boundaries",
+                "Tool And Approval Boundaries",
+                "global",
+                null,
+                "policy",
+                "Core owns state, model routes, approvals, permissions, events, and tool policy. Read-only evidence gathering can be automatic. Workspace writes, shell, Git, network, MCP, ACP, and other risky actions must remain approval-gated.",
+                800,
+                true,
+                true,
+                now,
+                now),
+            new PromptFragmentDto(
+                "prompt_builtin_agent_mode",
+                "builtin.agent.mode",
+                "Agent Mode Guidance",
+                "global",
+                null,
+                "mode",
+                "Respect the active agent mode. Plan-first favors explicit task graphs before execution. Balanced favors concise plans plus bounded execution. Safe research favors read-only exploration. Parallel favors independent execution lanes when dependencies and budget allow it.",
+                700,
+                true,
+                true,
+                now,
+                now),
+            new PromptFragmentDto(
+                "prompt_builtin_context_pack_rules",
+                "builtin.context-pack.rules",
+                "Context Pack Rules",
+                "global",
+                null,
+                "context",
+                "Use context packs as reversible summaries, not as hidden authority. Preserve evidence ids, call out missing context, and keep long-session compression visible to the user.",
+                600,
+                true,
+                true,
+                now,
+                now)
+        };
+
+        foreach (var fragment in fragments)
+        {
+            InsertPromptFragment(connection, fragment, updateBuiltin: true);
         }
     }
 
@@ -2901,6 +3329,23 @@ public sealed class CoreStore
             ParseTime(reader.GetString(9)));
     }
 
+    private static PromptFragmentDto ReadPromptFragment(SqliteDataReader reader)
+    {
+        return new PromptFragmentDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetInt32(7),
+            reader.GetInt32(8) == 1,
+            reader.GetInt32(9) == 1,
+            ParseTime(reader.GetString(10)),
+            ParseTime(reader.GetString(11)));
+    }
+
     private static OrchestrationRunDto ReadOrchestrationRun(SqliteDataReader reader)
     {
         return new OrchestrationRunDto(
@@ -3018,6 +3463,28 @@ public sealed class CoreStore
     private static string NormalizeRoutePurpose(string value)
     {
         return NormalizePlain(value, "chat").ToLowerInvariant();
+    }
+
+    private static string NormalizePromptScope(string? value)
+    {
+        var normalized = NormalizePlain(value, "global").ToLowerInvariant();
+        return normalized is "global" or "agent" or "mode" or "session" or "project" ? normalized : "global";
+    }
+
+    private static string NormalizePromptKey(string? value, string fallback)
+    {
+        var normalized = new string(NormalizePlain(value, fallback)
+            .Trim()
+            .ToLowerInvariant()
+            .Select(ch => char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-' ? ch : '.')
+            .ToArray());
+        while (normalized.Contains("..", StringComparison.Ordinal))
+        {
+            normalized = normalized.Replace("..", ".", StringComparison.Ordinal);
+        }
+
+        normalized = normalized.Trim('.', '_', '-');
+        return string.IsNullOrWhiteSpace(normalized) ? fallback : normalized;
     }
 
     private static string NormalizePlain(string? value, string fallback)

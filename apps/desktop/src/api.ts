@@ -260,6 +260,50 @@ export interface AgentCandidateDto {
   created_at: string;
 }
 
+export interface PromptFragmentDto {
+  id: string;
+  key: string;
+  title: string;
+  scope: string;
+  target_agent_id?: string | null;
+  category: string;
+  content: string;
+  priority: number;
+  enabled: boolean;
+  is_builtin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavePromptFragmentInput {
+  key: string;
+  title: string;
+  scope: string;
+  target_agent_id?: string | null;
+  category: string;
+  content: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface PromptContextPreviewInput {
+  agent_id: string;
+  mode?: string | null;
+  session_id?: string | null;
+  run_id?: string | null;
+  user_content?: string | null;
+}
+
+export interface PromptContextPreviewDto {
+  agent_id: string;
+  mode: string;
+  fragments: PromptFragmentDto[];
+  context_pack_ids: string[];
+  estimated_tokens: number;
+  system_prompt: string;
+  warnings: string[];
+}
+
 export interface OrchestrationRunDto {
   id: string;
   session_id: string;
@@ -544,6 +588,33 @@ export const api = {
   listAgentModes: () => request<AgentModeDto[]>('/api/v1/agent-modes'),
   listAgents: () => request<AgentProfileDto[]>('/api/v1/agents'),
   listTools: () => request<ToolDescriptorDto[]>('/api/v1/tools'),
+  listPromptFragments: (params: { scope?: string; target_agent_id?: string; category?: string; enabled?: boolean } = {}) => {
+    const search = new URLSearchParams();
+    if (params.scope) search.set('scope', params.scope);
+    if (params.target_agent_id) search.set('target_agent_id', params.target_agent_id);
+    if (params.category) search.set('category', params.category);
+    if (params.enabled !== undefined) search.set('enabled', String(params.enabled));
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return request<PromptFragmentDto[]>(`/api/v1/prompt-fragments${suffix}`);
+  },
+  createPromptFragment: (fragment: SavePromptFragmentInput) => request<PromptFragmentDto>('/api/v1/prompt-fragments', {
+    method: 'POST',
+    body: JSON.stringify(fragment)
+  }),
+  savePromptFragment: (fragmentId: string, fragment: SavePromptFragmentInput) => request<PromptFragmentDto>(`/api/v1/prompt-fragments/${encodeURIComponent(fragmentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(fragment)
+  }),
+  deletePromptFragment: (fragmentId: string) => request<void>(`/api/v1/prompt-fragments/${encodeURIComponent(fragmentId)}`, {
+    method: 'DELETE'
+  }),
+  clonePromptFragment: (fragmentId: string) => request<PromptFragmentDto>(`/api/v1/prompt-fragments/${encodeURIComponent(fragmentId)}/clone`, {
+    method: 'POST'
+  }),
+  previewPromptContext: (input: PromptContextPreviewInput) => request<PromptContextPreviewDto>('/api/v1/prompt-context/preview', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  }),
   executeCodeTool: (toolId: string, payload: CodeToolExecuteRequestDto = {}) => request<CodeToolExecuteResultDto>(`/api/v1/code/tools/${toolId}/execute`, {
     method: 'POST',
     body: JSON.stringify(payload)

@@ -21,6 +21,7 @@ src/TinadecCore/
 | Add/trace endpoint | `Program.cs` | Minimal API route map is centralized. |
 | Change persistence | `Storage/CoreStore.cs` | Largest hotspot; pair with CoreStore tests. |
 | Change DTO/request | `Contracts/Models`, `Contracts/Events` | Mirror Desktop `api.ts` after Core changes. |
+| Prompt context engineering | `Services/PromptContextService.cs`, `Storage/CoreStore.cs`, `Services/ToolRegistryService.cs` | SQLite prompt fragments, preview assembly, Prompt Context Engineer fallback plan, and read-only `prompt_context_resolve` tool live in Core. |
 | Tool policy | `Services/ToolRegistryService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior. |
 | Code-suite registration | `Services/ToolRegistryService.cs` | `CodeCapabilityProvider` registers Tool-layer Code capabilities; keep Code modeled as tools, not a peer orchestrator. |
 | Orchestration | `Services/OrchestratorService.cs`, `AgentWorkflowRuntime.cs` | Runs, task graph, read-only tools. |
@@ -33,6 +34,8 @@ src/TinadecCore/
 - HTTP JSON uses `JsonNamingPolicy.SnakeCaseLower`; keep event/DTO casing stable.
 - Provider catalog templates now expose family, driver, connection kind, credential kind, timeout, and capability metadata.
 - `CoreStore` is SQLite-first and seeds built-in agents/providers/routes/extensions.
+- `CoreStore` seeds built-in prompt fragments and stores custom prompt fragments/plans. Built-in prompt fragments are read-only; clone them before editing.
+- `PromptContextService` owns Meeting Agent system prompt assembly. Keep full prompt text out of events/tool results; log only fragment ids, estimated token count, context pack ids, and warning counts.
 - Tool execution must preserve approval-gated posture.
 - Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.
 - Keep `project_templates` read-only and `project_template_scaffold` approval-gated as `workspace-write`; scaffolding must flow through Core approval before Gateway writes files.

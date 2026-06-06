@@ -212,9 +212,21 @@ public sealed class CliProviderRuntimeTests
 
         public void Dispose()
         {
-            if (Directory.Exists(Root))
+            for (var attempt = 0; attempt < 10; attempt++)
             {
-                Directory.Delete(Root, recursive: true);
+                try
+                {
+                    if (Directory.Exists(Root))
+                    {
+                        Directory.Delete(Root, recursive: true);
+                    }
+
+                    return;
+                }
+                catch (IOException) when (attempt < 9)
+                {
+                    Thread.Sleep(100);
+                }
             }
         }
 
@@ -222,7 +234,7 @@ public sealed class CliProviderRuntimeTests
         {
             if (unixScript.Contains("Hello from Codex CLI", StringComparison.Ordinal))
             {
-                return "@echo off\r\nfindstr /c:\"session_id\":\"sess_cli\" >nul || (echo missing session 1>&2 & exit /b 64)\r\necho Hello from Codex CLI\r\n";
+                return "@echo off\r\nfindstr /c:\"sess_cli\" >nul || (echo missing session 1>&2 & exit /b 64)\r\necho %* | findstr /c:\"--run-id\" >nul || (echo missing run 1>&2 & exit /b 64)\r\necho Hello from Codex CLI\r\n";
             }
 
             if (unixScript.Contains("temporary outage", StringComparison.Ordinal))
@@ -237,7 +249,7 @@ public sealed class CliProviderRuntimeTests
 
             if (unixScript.Contains("sleep 30", StringComparison.Ordinal))
             {
-                return "@echo off\r\ntimeout /t 30 /nobreak >nul\r\necho too late\r\n";
+                return "@echo off\r\nping -n 31 127.0.0.1 >nul\r\necho too late\r\n";
             }
 
             return "@echo off\r\necho token=sk-test-secret bearer abc123 password=hunter2 1>&2\r\nexit /b 77\r\n";
