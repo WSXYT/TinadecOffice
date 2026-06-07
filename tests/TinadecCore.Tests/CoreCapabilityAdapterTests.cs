@@ -121,6 +121,7 @@ public sealed class CoreCapabilityAdapterTests
         Assert.Contains(manifest.ToolProviders, provider => provider.Source == "codex-rust" && provider.Layer == "native-glue");
         Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "read-only" && !risk.RequiresHumanCheckpoint);
         Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "workspace-write" && risk.RequiresHumanCheckpoint);
+        Assert.Contains(manifest.DesignNotes, note => note.Contains("canonical", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(manifest.DesignNotes, note => note.Contains("not a second orchestration runtime", StringComparison.OrdinalIgnoreCase));
     }
 

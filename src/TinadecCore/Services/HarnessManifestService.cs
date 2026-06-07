@@ -27,6 +27,7 @@ public sealed class HarnessManifestService(
             [
                 "Planning agents create and supervise task graphs; execution agents complete assigned nodes with scoped tools.",
                 "Tool layer providers declare capabilities; Core decides approval, dispatch, tracing, and state recording.",
+                "Tool registry output is canonical and de-duplicated before Gateway or Desktop consume search, manifest, policy, or execution lookup state.",
                 "Code remains a built-in Tool-layer suite, not a second orchestration runtime."
             ]);
     }

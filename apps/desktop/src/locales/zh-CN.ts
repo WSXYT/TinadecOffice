@@ -106,6 +106,7 @@ export default {
     toolLayerTitle: '工具层',
     toolLayerSubtitle: '查看由 Core harness 治理的 Code 工具套件与 Codex 基础工具。',
     harnessAgentLayers: '智能体层',
+    harnessDesignNotes: '设计说明',
     toolProviders: '工具来源',
     riskPolicies: '风险策略',
     maxParallel: '最大并行',

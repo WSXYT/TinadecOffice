@@ -106,6 +106,7 @@ export default {
     toolLayerTitle: 'Tool Layer',
     toolLayerSubtitle: 'Inspect Code-suite tools and Codex primitives governed by the Core harness.',
     harnessAgentLayers: 'Agent Layers',
+    harnessDesignNotes: 'Design Notes',
     toolProviders: 'Tool Providers',
     riskPolicies: 'Risk Policies',
     maxParallel: 'Max parallel',

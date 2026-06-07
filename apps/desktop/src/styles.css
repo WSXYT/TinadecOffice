@@ -4178,6 +4178,22 @@ label {
   margin-bottom: 18px;
 }
 
+.harness-design-notes {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.harness-design-notes span {
+  padding: 8px 10px;
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .harness-manifest-panel {
   display: grid;
   gap: 8px;

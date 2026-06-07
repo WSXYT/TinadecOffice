@@ -1648,6 +1648,15 @@ loadPromptContextCenter()
             <span>{{ harnessManifest.runtime }} · {{ harnessManifest.ownership_model }}</span>
           </div>
 
+          <div v-if="harnessManifest?.design_notes.length" class="model-section-header">
+            <h3>{{ t('settings.harnessDesignNotes') }}</h3>
+            <UiBadge variant="outline">{{ harnessManifest.design_notes.length }}</UiBadge>
+          </div>
+
+          <div v-if="harnessManifest?.design_notes.length" class="harness-design-notes">
+            <span v-for="note in harnessManifest.design_notes" :key="note">{{ note }}</span>
+          </div>
+
           <div v-if="manifestAgentLayers.length > 0" class="model-section-header">
             <h3>{{ t('settings.harnessAgentLayers') }}</h3>
             <UiBadge variant="outline">{{ manifestAgentLayers.length }}</UiBadge>

@@ -26,7 +26,7 @@ apps/desktop/
 | Main shell | `src/pages/HomePage.vue`, `src/components/*` | Chat, approvals, events, context, task graph. |
 | Settings | `src/pages/SettingsPage.vue` | Large hotspot; model/providers/agents settings. |
 | Prompt Context settings | `src/pages/SettingsPage.vue`, `src/api.ts` | Manage/clone custom prompt fragments and preview Core-assembled prompts through Gateway; do not assemble prompts in the renderer. |
-| Tool layer catalog/search | `src/pages/SettingsPage.vue`, `src/toolCatalog.ts`, `src/api.ts` | Settings presents Code-suite tools, Codex primitives, supported runtimes, and Core-owned tool search results. |
+| Tool layer catalog/search | `src/pages/SettingsPage.vue`, `src/toolCatalog.ts`, `src/api.ts` | Settings presents Code-suite tools, Codex primitives, supported runtimes, Core manifest design notes, and Core-owned tool search results. |
 | Tool execution visibility | `src/pages/HomePage.vue`, `src/components/ContextPanel.vue`, `src/components/OrchestrationTab.vue`, `src/api.ts` | Right rail presents Core-owned tool execution timeline state and step-result evidence. |
 | Git handoff UI | `src/components/DiffTab.vue`, `src/components/ContextPanel.vue`, `src/api.ts` | Diff tab calls Gateway `git_worktree_manager` with `action: push_plan` for current-project push readiness and can create Core `git` approval requests; mutating Git execution remains approval-gated. |
 | Marketplace | `src/pages/MarketPage.vue` | Extension source/catalog/install flow. |
