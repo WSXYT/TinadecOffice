@@ -411,9 +411,18 @@ public sealed record ToolRiskManifestDto(
     bool RequiresHumanCheckpoint,
     string PolicySummary);
 
+public sealed record ToolRegistrySummaryDto(
+    int DeclaredToolCount,
+    int CanonicalToolCount,
+    int DuplicateToolIdCount,
+    IReadOnlyList<string> DuplicateToolIds,
+    IReadOnlyList<string> SourcePrecedence,
+    string SelectionPolicy);
+
 public sealed record HarnessManifestDto(
     string Runtime,
     string OwnershipModel,
+    ToolRegistrySummaryDto ToolRegistry,
     IReadOnlyList<AgentLayerManifestDto> AgentLayers,
     IReadOnlyList<ToolProviderManifestDto> ToolProviders,
     IReadOnlyList<ToolRiskManifestDto> ToolRisks,

@@ -83,6 +83,14 @@ describe('tool catalog helpers', () => {
     const manifest: HarnessManifestDto = {
       runtime: 'tinadec-core-workflow',
       ownership_model: 'Core owns policy.',
+      tool_registry: {
+        declared_tool_count: 3,
+        canonical_tool_count: 3,
+        duplicate_tool_id_count: 0,
+        duplicate_tool_ids: [],
+        source_precedence: ['core', 'code', 'codex-rust', 'extension'],
+        selection_policy: 'Core canonicalizes duplicate tool ids.'
+      },
       agent_layers: [
         {
           layer: 'execution',

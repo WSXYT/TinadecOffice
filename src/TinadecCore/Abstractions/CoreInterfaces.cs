@@ -125,6 +125,7 @@ public interface IToolRegistry
 {
     IReadOnlyList<ToolDescriptorDto> ListTools(string? domain = null);
     ToolDescriptorDto? Resolve(string toolId);
+    ToolRegistrySummaryDto Describe(string? domain = null);
 }
 
 public interface ICodeToolClient

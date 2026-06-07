@@ -38,7 +38,7 @@ src/TinadecCore/
 - `PromptContextService` owns Meeting Agent system prompt assembly. Keep full prompt text out of events/tool results; log only fragment ids, estimated token count, context pack ids, and warning counts.
 - Tool execution must preserve approval-gated posture.
 - Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.
-- `ToolRegistryService` publishes a canonical tool catalog: duplicate tool ids are resolved inside Core before search, manifest, policy, or execution lookup can consume them.
+- `ToolRegistryService` publishes a canonical tool catalog and registry summary: duplicate tool ids are resolved inside Core before search, manifest, policy, or execution lookup can consume them.
 - `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep push/history mutations approval-gated.
 - Tool discovery is Core-owned. `/api/v1/tools/search` must derive provider layer, matched fields, and human-checkpoint summaries from Core descriptors and policy semantics.
 - Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state from Core events plus step-result evidence.

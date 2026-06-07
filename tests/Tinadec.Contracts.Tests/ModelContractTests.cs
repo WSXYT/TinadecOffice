@@ -109,6 +109,13 @@ public sealed class ModelContractTests
         var manifest = new HarnessManifestDto(
             Runtime: "tinadec-core-workflow",
             OwnershipModel: "Core owns orchestration.",
+            ToolRegistry: new ToolRegistrySummaryDto(
+                DeclaredToolCount: 4,
+                CanonicalToolCount: 3,
+                DuplicateToolIdCount: 1,
+                DuplicateToolIds: ["apply_patch"],
+                SourcePrecedence: ["core", "code", "codex-rust", "extension"],
+                SelectionPolicy: "Core canonicalizes duplicate tool ids by source precedence."),
             AgentLayers:
             [
                 new AgentLayerManifestDto(
@@ -161,6 +168,10 @@ public sealed class ModelContractTests
         var json = JsonSerializer.Serialize(manifest, JsonOptions);
 
         Assert.Contains("\"ownership_model\":\"Core owns orchestration.\"", json);
+        Assert.Contains("\"tool_registry\"", json);
+        Assert.Contains("\"declared_tool_count\":4", json);
+        Assert.Contains("\"canonical_tool_count\":3", json);
+        Assert.Contains("\"duplicate_tool_id_count\":1", json);
         Assert.Contains("\"agent_layers\"", json);
         Assert.Contains("\"enabled_agent_count\":2", json);
         Assert.Contains("\"max_parallel_executors\":1", json);

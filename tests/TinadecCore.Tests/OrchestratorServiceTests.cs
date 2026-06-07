@@ -265,6 +265,17 @@ public sealed class OrchestratorServiceTests
         {
             return null;
         }
+
+        public ToolRegistrySummaryDto Describe(string? domain = null)
+        {
+            return new ToolRegistrySummaryDto(
+                0,
+                0,
+                0,
+                [],
+                ["core", "code", "codex-rust", "extension"],
+                "No tools are registered.");
+        }
     }
 
     private sealed class AllowReadOnlyCapabilityPolicy : ICapabilityPolicy

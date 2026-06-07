@@ -472,9 +472,19 @@ export interface ToolRiskManifestDto {
   policy_summary: string;
 }
 
+export interface ToolRegistrySummaryDto {
+  declared_tool_count: number;
+  canonical_tool_count: number;
+  duplicate_tool_id_count: number;
+  duplicate_tool_ids: string[];
+  source_precedence: string[];
+  selection_policy: string;
+}
+
 export interface HarnessManifestDto {
   runtime: string;
   ownership_model: string;
+  tool_registry: ToolRegistrySummaryDto;
   agent_layers: AgentLayerManifestDto[];
   tool_providers: ToolProviderManifestDto[];
   tool_risks: ToolRiskManifestDto[];

@@ -66,10 +66,16 @@ public sealed class CoreCapabilityAdapterTests
         ]);
 
         var tool = Assert.Single(registry.ListTools(), item => item.Id == "git_worktree_manager");
+        var summary = registry.Describe();
 
         Assert.Equal("code", tool.Source);
         Assert.Equal("git-write", tool.Risk);
         Assert.True(tool.RequiresApproval);
+        Assert.Equal(8, summary.DeclaredToolCount);
+        Assert.Equal(7, summary.CanonicalToolCount);
+        Assert.Equal(1, summary.DuplicateToolIdCount);
+        Assert.Contains("git_worktree_manager", summary.DuplicateToolIds);
+        Assert.Equal(new[] { "core", "code", "codex-rust", "extension" }, summary.SourcePrecedence);
     }
 
     [Fact]
@@ -121,6 +127,9 @@ public sealed class CoreCapabilityAdapterTests
         Assert.Contains(manifest.ToolProviders, provider => provider.Source == "codex-rust" && provider.Layer == "native-glue");
         Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "read-only" && !risk.RequiresHumanCheckpoint);
         Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "workspace-write" && risk.RequiresHumanCheckpoint);
+        Assert.Equal(manifest.Tools.Count, manifest.ToolRegistry.CanonicalToolCount);
+        Assert.True(manifest.ToolRegistry.DeclaredToolCount >= manifest.ToolRegistry.CanonicalToolCount);
+        Assert.Contains("source precedence", manifest.ToolRegistry.SelectionPolicy, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(manifest.DesignNotes, note => note.Contains("canonical", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(manifest.DesignNotes, note => note.Contains("not a second orchestration runtime", StringComparison.OrdinalIgnoreCase));
     }

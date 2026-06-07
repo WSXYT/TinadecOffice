@@ -1648,6 +1648,35 @@ loadPromptContextCenter()
             <span>{{ harnessManifest.runtime }} · {{ harnessManifest.ownership_model }}</span>
           </div>
 
+          <div v-if="harnessManifest?.tool_registry" class="model-section-header">
+            <h3>{{ t('settings.toolRegistryGovernance') }}</h3>
+            <UiBadge variant="outline">{{ harnessManifest.tool_registry.canonical_tool_count }}</UiBadge>
+          </div>
+
+          <div v-if="harnessManifest?.tool_registry" class="harness-registry-summary">
+            <div class="harness-registry-metrics">
+              <div>
+                <span>{{ t('settings.declaredTools') }}</span>
+                <strong>{{ harnessManifest.tool_registry.declared_tool_count }}</strong>
+              </div>
+              <div>
+                <span>{{ t('settings.canonicalTools') }}</span>
+                <strong>{{ harnessManifest.tool_registry.canonical_tool_count }}</strong>
+              </div>
+              <div>
+                <span>{{ t('settings.duplicateToolIds') }}</span>
+                <strong>{{ harnessManifest.tool_registry.duplicate_tool_id_count }}</strong>
+              </div>
+            </div>
+            <p>{{ harnessManifest.tool_registry.selection_policy }}</p>
+            <div class="model-capability-row compact">
+              <span v-for="source in harnessManifest.tool_registry.source_precedence" :key="source">{{ source }}</span>
+            </div>
+            <div v-if="harnessManifest.tool_registry.duplicate_tool_ids.length > 0" class="model-capability-row compact">
+              <span v-for="toolId in harnessManifest.tool_registry.duplicate_tool_ids" :key="toolId">{{ toolId }}</span>
+            </div>
+          </div>
+
           <div v-if="harnessManifest?.design_notes.length" class="model-section-header">
             <h3>{{ t('settings.harnessDesignNotes') }}</h3>
             <UiBadge variant="outline">{{ harnessManifest.design_notes.length }}</UiBadge>

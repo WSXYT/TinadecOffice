@@ -20,6 +20,7 @@ public sealed class HarnessManifestService(
         return new HarnessManifestDto(
             AgentWorkflowRuntime.RuntimeName,
             "Core owns orchestration, approvals, model routing, tool policy, and audit events; Gateway and Desktop only present or proxy this manifest.",
+            tools.Describe(),
             BuildAgentLayers(agents, modes),
             BuildToolProviders(toolList),
             BuildToolRisks(toolList),

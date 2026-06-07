@@ -197,6 +197,7 @@ public sealed class PromptContextCapabilityProvider : ICapabilityProvider
 public sealed class ToolRegistryService : IToolRegistry
 {
     private readonly IReadOnlyList<ICapabilityProvider> _providers;
+    private static readonly string[] SourcePrecedence = ["core", "code", "codex-rust", "extension"];
 
     public ToolRegistryService()
         : this([new CodexCapabilityProvider(), new CodeCapabilityProvider(), new PromptContextCapabilityProvider()])
@@ -210,11 +211,46 @@ public sealed class ToolRegistryService : IToolRegistry
 
     public IReadOnlyList<ToolDescriptorDto> ListTools(string? domain = null)
     {
+        var tools = CanonicalTools(domain);
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            return tools;
+        }
+
+        return tools;
+    }
+
+    public ToolDescriptorDto? Resolve(string toolId)
+    {
+        return ListTools().FirstOrDefault(tool =>
+            string.Equals(tool.Id, toolId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public ToolRegistrySummaryDto Describe(string? domain = null)
+    {
+        var declaredTools = DeclaredTools(domain);
+        var duplicateToolIds = declaredTools
+            .GroupBy(tool => tool.Id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return new ToolRegistrySummaryDto(
+            declaredTools.Length,
+            CanonicalTools(domain).Length,
+            duplicateToolIds.Length,
+            duplicateToolIds,
+            SourcePrecedence,
+            "Core canonicalizes duplicate tool ids by source precedence, then keeps the more approval-gated and higher-risk descriptor for same-precedence declarations.");
+    }
+
+    private ToolDescriptorDto[] DeclaredTools(string? domain = null)
+    {
         var tools = _providers
             .SelectMany(provider => provider.ListCapabilities())
-            .GroupBy(tool => tool.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(SelectCanonicalTool)
             .ToArray();
+
         if (string.IsNullOrWhiteSpace(domain))
         {
             return tools;
@@ -225,10 +261,12 @@ public sealed class ToolRegistryService : IToolRegistry
             .ToArray();
     }
 
-    public ToolDescriptorDto? Resolve(string toolId)
+    private ToolDescriptorDto[] CanonicalTools(string? domain = null)
     {
-        return ListTools().FirstOrDefault(tool =>
-            string.Equals(tool.Id, toolId, StringComparison.OrdinalIgnoreCase));
+        return DeclaredTools(domain)
+            .GroupBy(tool => tool.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(SelectCanonicalTool)
+            .ToArray();
     }
 
     private static ToolDescriptorDto SelectCanonicalTool(IGrouping<string, ToolDescriptorDto> duplicates)
