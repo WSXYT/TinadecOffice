@@ -218,6 +218,10 @@ async function decideApproval(approval: ApprovalDto, decision: 'approved' | 'rej
   })
 }
 
+function recordApproval(approval: ApprovalDto) {
+  approvals.value = [approval, ...approvals.value.filter((item) => item.id !== approval.id)]
+}
+
 function reconnectEvents() {
   eventSource.value?.close()
   eventSource.value = api.connectEvents(selectedSessionId.value, async (event) => {
@@ -322,6 +326,7 @@ onUnmounted(() => {
         :current-project-path="currentProject?.path"
         @request-approval="requestShellApproval"
         @decide-approval="decideApproval"
+        @approval-created="recordApproval"
         @update:shell-command="shellCommand = $event"
       />
     </section>

@@ -34,6 +34,14 @@ export interface ApprovalDto {
   decided_at?: string | null;
 }
 
+export interface CreateApprovalInput {
+  session_id?: string | null;
+  kind: string;
+  summary: string;
+  command?: string | null;
+  cwd?: string | null;
+}
+
 export interface ModelSettingsDto {
   base_url: string;
   model: string;
@@ -593,6 +601,10 @@ export const api = {
   listContextPacks: (sessionId: string) => request<ContextPackDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/context-packs`),
   listSupervisionFindings: (sessionId: string) => request<SupervisionFindingDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/supervision-findings`),
   listApprovals: (sessionId?: string) => request<ApprovalDto[]>(`/api/v1/approvals?status=pending${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''}`),
+  createApproval: (approval: CreateApprovalInput) => request<ApprovalDto>('/api/v1/approvals', {
+    method: 'POST',
+    body: JSON.stringify(approval)
+  }),
   decideApproval: (approvalId: string, decision: 'approved' | 'rejected') => request<ApprovalDto>(`/api/v1/approvals/${approvalId}/decision`, {
     method: 'POST',
     body: JSON.stringify({ decision })

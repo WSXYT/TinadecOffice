@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2, GitBranch, RefreshCw, ShieldCheck } from '@lucide/vue'
+import { AlertTriangle, CheckCircle2, GitBranch, RefreshCw, ShieldCheck, Upload } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api, type CodeToolExecuteResultDto } from '../api'
+import { api, type ApprovalDto, type CodeToolExecuteResultDto } from '../api'
 
 const { t } = useI18n()
 
@@ -16,14 +16,23 @@ interface GitPushPlanData {
   push_ready?: boolean
   push_blockers?: string[]
   suggested_commands?: string[]
+  needs_push?: boolean
 }
 
 const props = defineProps<{
   currentProjectPath?: string
+  selectedSessionId?: string | null
+}>()
+
+const emit = defineEmits<{
+  'approval-created': [approval: ApprovalDto]
 }>()
 
 const loading = ref(false)
+const approvalLoading = ref(false)
 const error = ref<string | null>(null)
+const approvalFeedback = ref<string | null>(null)
+const requestedApproval = ref<ApprovalDto | null>(null)
 const plan = ref<CodeToolExecuteResultDto | null>(null)
 
 const planData = computed(() => (plan.value?.data ?? {}) as GitPushPlanData)
@@ -35,6 +44,23 @@ const diffStatLines = computed(() =>
     : []
 )
 const pushReady = computed(() => planData.value.push_ready === true)
+const noUpstreamOnly = computed(() => pushBlockers.value.length === 1 && pushBlockers.value[0] === 'no upstream')
+const hasPushCandidate = computed(() => {
+  const ahead = typeof planData.value.ahead === 'number' ? planData.value.ahead : 0
+  return (pushReady.value && ahead > 0) || noUpstreamOnly.value
+})
+const canRequestPushApproval = computed(() =>
+  Boolean(props.currentProjectPath && props.selectedSessionId && hasPushCandidate.value)
+)
+const pushCommand = computed(() => {
+  const branch = planData.value.branch ?? 'HEAD'
+  return noUpstreamOnly.value ? `git push -u origin ${branch}` : 'git push'
+})
+const pushApprovalHint = computed(() => {
+  if (!props.selectedSessionId) return t('context.gitApprovalNeedsSession')
+  if (!hasPushCandidate.value) return t('context.gitNoPushCandidate')
+  return pushCommand.value
+})
 
 async function loadGitPlan() {
   if (!props.currentProjectPath) {
@@ -57,7 +83,37 @@ async function loadGitPlan() {
   }
 }
 
+async function requestPushApproval() {
+  if (!props.currentProjectPath || !props.selectedSessionId || !hasPushCandidate.value) {
+    return
+  }
+
+  approvalLoading.value = true
+  approvalFeedback.value = null
+  try {
+    const branch = planData.value.branch ?? 'HEAD'
+    const upstream = planData.value.upstream ?? 'origin'
+    const ahead = typeof planData.value.ahead === 'number' ? planData.value.ahead : 0
+    const approval = await api.createApproval({
+      session_id: props.selectedSessionId,
+      kind: 'git',
+      summary: `Push ${branch} to ${upstream} (${ahead} ahead)`,
+      command: pushCommand.value,
+      cwd: props.currentProjectPath
+    })
+    requestedApproval.value = approval
+    approvalFeedback.value = t('context.gitApprovalRequested')
+    emit('approval-created', approval)
+  } catch (err) {
+    approvalFeedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+  } finally {
+    approvalLoading.value = false
+  }
+}
+
 watch(() => props.currentProjectPath, () => {
+  requestedApproval.value = null
+  approvalFeedback.value = null
   void loadGitPlan()
 }, { immediate: true })
 </script>
@@ -128,6 +184,24 @@ watch(() => props.currentProjectPath, () => {
       <div v-if="suggestedCommands.length > 0" class="git-plan-section">
         <span>{{ t('context.gitSuggestedCommands') }}</span>
         <code v-for="command in suggestedCommands" :key="command">{{ command }}</code>
+      </div>
+
+      <div class="git-plan-actions">
+        <button
+          class="secondary-button git-action-button"
+          :title="t('context.gitRequestPushApprovalTitle')"
+          :disabled="approvalLoading || !canRequestPushApproval"
+          @click="requestPushApproval"
+        >
+          <Upload :size="14" />
+          <span>{{ approvalLoading ? t('context.gitRequestingApproval') : t('context.gitRequestPushApproval') }}</span>
+        </button>
+        <span class="git-action-note">{{ approvalFeedback ?? pushApprovalHint }}</span>
+      </div>
+
+      <div v-if="requestedApproval" class="git-plan-approval">
+        <ShieldCheck :size="14" />
+        <span>{{ t('context.gitApprovalStatus') }}: {{ requestedApproval.id }} · {{ requestedApproval.status }}</span>
       </div>
 
       <div class="git-plan-approval">

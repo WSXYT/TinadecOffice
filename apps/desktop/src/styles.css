@@ -3224,6 +3224,23 @@ label {
   line-height: 1.45;
 }
 
+.git-plan-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.git-action-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.git-action-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .git-plan-approval,
 .git-plan-state {
   display: flex;

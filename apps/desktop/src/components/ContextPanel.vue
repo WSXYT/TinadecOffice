@@ -53,6 +53,7 @@ defineProps<{
 const emit = defineEmits<{
   'request-approval': []
   'decide-approval': [approval: ApprovalDto, decision: 'approved' | 'rejected']
+  'approval-created': [approval: ApprovalDto]
   'update:shellCommand': [value: string]
 }>()
 
@@ -120,7 +121,12 @@ const toolbarItems = [
           @update:shell-command="emit('update:shellCommand', $event)"
         />
         <OrchestrationTab v-if="activeTab === 'tasks'" :snapshot="orchestration" :tool-executions="toolExecutions" />
-        <DiffTab v-if="activeTab === 'diff'" :current-project-path="currentProjectPath" />
+        <DiffTab
+          v-if="activeTab === 'diff'"
+          :current-project-path="currentProjectPath"
+          :selected-session-id="selectedSessionId"
+          @approval-created="emit('approval-created', $event)"
+        />
         <EventsTab v-if="activeTab === 'events'" :events="events" />
         <DoctorTab v-if="activeTab === 'doctor'" :doctor="doctor" />
       </div>
