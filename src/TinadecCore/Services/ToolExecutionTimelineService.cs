@@ -84,6 +84,7 @@ public sealed class ToolExecutionTimelineService(
             ToolId = toolId,
             ToolDisplayName = tool?.DisplayName ?? toolId,
             Source = tool?.Source ?? "unknown",
+            ProviderLayer = SourceLayer(tool?.Source),
             Risk = tool?.Risk ?? "unknown",
             RequiresApproval = tool?.RequiresApproval ?? ReadBool(envelope.Payload, "requires_approval"),
             Status = StatusFromEvent(envelope),
@@ -183,6 +184,36 @@ public sealed class ToolExecutionTimelineService(
         };
     }
 
+    private static string SourceLayer(string? source)
+    {
+        return (source ?? string.Empty).ToLowerInvariant() switch
+        {
+            "core" => "core",
+            "code" => "tool-layer",
+            "codex-rust" => "native-glue",
+            "" => "unknown",
+            _ => "extension"
+        };
+    }
+
+    private static string CheckpointSummary(
+        string risk,
+        bool requiresApproval,
+        string? approvalId)
+    {
+        if (!string.IsNullOrWhiteSpace(approvalId))
+        {
+            return $"Core approval {approvalId} authorized this execution.";
+        }
+
+        if (!requiresApproval && risk.Equals("read-only", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Read-only tool execution was auto-dispatchable under Core policy.";
+        }
+
+        return "Core policy requires a human checkpoint before dispatch.";
+    }
+
     private static string? ReadString(JsonObject? payload, string key)
     {
         if (payload is null || !payload.TryGetPropertyValue(key, out var node) || node is null)
@@ -215,6 +246,7 @@ public sealed class ToolExecutionTimelineService(
         public required string ToolId { get; init; }
         public required string ToolDisplayName { get; init; }
         public required string Source { get; init; }
+        public required string ProviderLayer { get; init; }
         public required string Risk { get; init; }
         public bool RequiresApproval { get; set; }
         public required string Status { get; set; }
@@ -237,6 +269,7 @@ public sealed class ToolExecutionTimelineService(
                 ToolId,
                 ToolDisplayName,
                 Source,
+                ProviderLayer,
                 Risk,
                 RequiresApproval,
                 Status,
@@ -246,9 +279,11 @@ public sealed class ToolExecutionTimelineService(
                 Evidence,
                 RequestedAt,
                 UpdatedAt,
+                Math.Max(0, (long)(UpdatedAt - RequestedAt).TotalMilliseconds),
                 RequestedSeq,
                 UpdatedSeq,
-                EventTypes.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+                EventTypes.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                CheckpointSummary(Risk, RequiresApproval, ApprovalId));
         }
     }
 }

@@ -3519,6 +3519,11 @@ label {
   font-size: 11px;
 }
 
+.tool-execution-checkpoint {
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+}
+
 .tool-execution-evidence {
   display: grid;
   gap: 3px;

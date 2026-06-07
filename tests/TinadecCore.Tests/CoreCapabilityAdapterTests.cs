@@ -206,8 +206,11 @@ public sealed class CoreCapabilityAdapterTests
         var item = Assert.Single(timeline);
         Assert.Equal("read_file", item.ToolId);
         Assert.Equal("Read File", item.ToolDisplayName);
+        Assert.Equal("native-glue", item.ProviderLayer);
         Assert.Equal("completed", item.Status);
         Assert.False(item.RequiresApproval);
+        Assert.True(item.DurationMs >= 0);
+        Assert.Contains("auto-dispatchable", item.CheckpointSummary, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(step.Id, item.StepResultId);
         Assert.Equal("Read File completed with one evidence item.", item.Summary);
         Assert.Contains("file:README.md", item.Evidence);

@@ -9,6 +9,18 @@ const props = defineProps<{
 }>()
 
 const hasSnapshot = computed(() => Boolean(props.snapshot?.run))
+
+function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) {
+    return '0 ms'
+  }
+
+  if (milliseconds < 1000) {
+    return `${Math.round(milliseconds)} ms`
+  }
+
+  return `${(milliseconds / 1000).toFixed(1)} s`
+}
 </script>
 
 <template>
@@ -67,10 +79,14 @@ const hasSnapshot = computed(() => Boolean(props.snapshot?.run))
           <p>{{ execution.summary }}</p>
           <div class="tool-execution-meta">
             <span>{{ execution.source }}</span>
+            <span>{{ execution.provider_layer }}</span>
             <span>{{ execution.risk }}</span>
+            <span>{{ formatDuration(execution.duration_ms) }}</span>
+            <span>seq {{ execution.requested_seq }}-{{ execution.updated_seq }}</span>
             <span v-if="execution.approval_id">approval {{ execution.approval_id }}</span>
             <span v-if="execution.step_result_id">step {{ execution.step_result_id }}</span>
           </div>
+          <p class="tool-execution-checkpoint">{{ execution.checkpoint_summary }}</p>
           <div v-if="execution.evidence.length > 0" class="tool-execution-evidence">
             <small v-for="item in execution.evidence" :key="item">{{ item }}</small>
           </div>

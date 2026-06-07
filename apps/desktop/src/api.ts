@@ -382,6 +382,7 @@ export interface ToolExecutionTimelineItemDto {
   tool_id: string;
   tool_display_name: string;
   source: string;
+  provider_layer: string;
   risk: string;
   requires_approval: boolean;
   status: string;
@@ -391,9 +392,11 @@ export interface ToolExecutionTimelineItemDto {
   evidence: string[];
   requested_at: string;
   updated_at: string;
+  duration_ms: number;
   requested_seq: number;
   updated_seq: number;
   event_types: string[];
+  checkpoint_summary: string;
 }
 
 export interface ContextPackDto {

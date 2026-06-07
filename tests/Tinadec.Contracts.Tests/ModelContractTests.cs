@@ -220,6 +220,7 @@ public sealed class ModelContractTests
             "read_file",
             "Read File",
             "codex-rust",
+            "native-glue",
             "read-only",
             RequiresApproval: false,
             Status: "completed",
@@ -229,18 +230,23 @@ public sealed class ModelContractTests
             Evidence: ["file:README.md"],
             RequestedAt: DateTimeOffset.UnixEpoch,
             UpdatedAt: DateTimeOffset.UnixEpoch.AddSeconds(2),
+            DurationMs: 2000,
             RequestedSeq: 10,
             UpdatedSeq: 11,
-            EventTypes: ["tool.execution.requested", "tool.execution.completed"]);
+            EventTypes: ["tool.execution.requested", "tool.execution.completed"],
+            CheckpointSummary: "Read-only tool execution was auto-dispatchable under Core policy.");
 
         var json = JsonSerializer.Serialize(item, JsonOptions);
 
         Assert.Contains("\"tool_display_name\":\"Read File\"", json);
+        Assert.Contains("\"provider_layer\":\"native-glue\"", json);
         Assert.Contains("\"requires_approval\":false", json);
         Assert.Contains("\"step_result_id\":\"step_1\"", json);
+        Assert.Contains("\"duration_ms\":2000", json);
         Assert.Contains("\"requested_seq\":10", json);
         Assert.Contains("\"updated_seq\":11", json);
         Assert.Contains("\"event_types\":[\"tool.execution.requested\",\"tool.execution.completed\"]", json);
+        Assert.Contains("\"checkpoint_summary\":\"Read-only tool execution was auto-dispatchable under Core policy.\"", json);
     }
 
     [Fact]

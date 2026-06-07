@@ -41,7 +41,7 @@ src/TinadecCore/
 - `ToolRegistryService` publishes a canonical tool catalog and registry summary: duplicate tool ids are resolved inside Core before search, manifest, policy, or execution lookup can consume them.
 - `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep push/history mutations approval-gated.
 - Tool discovery is Core-owned. `/api/v1/tools/search` must derive provider layer, matched fields, and human-checkpoint summaries from Core descriptors and policy semantics.
-- Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state from Core events plus step-result evidence.
+- Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state, provider layer, duration, checkpoint summary, and step-result evidence from Core events and descriptors.
 - Keep `project_templates` read-only and `project_template_scaffold` approval-gated as `workspace-write`; scaffolding must flow through Core approval before Gateway writes files.
 - `SecretProtector` uses DPAPI on Windows; non-Windows fallback is for development only.
 - Trace propagation crosses to Gateway/code tools; preserve `traceparent` behavior in client changes.

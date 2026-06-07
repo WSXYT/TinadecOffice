@@ -27,7 +27,7 @@ apps/desktop/
 | Settings | `src/pages/SettingsPage.vue` | Large hotspot; model/providers/agents settings. |
 | Prompt Context settings | `src/pages/SettingsPage.vue`, `src/api.ts` | Manage/clone custom prompt fragments and preview Core-assembled prompts through Gateway; do not assemble prompts in the renderer. |
 | Tool layer catalog/search | `src/pages/SettingsPage.vue`, `src/toolCatalog.ts`, `src/api.ts` | Settings presents Code-suite tools, Codex primitives, supported runtimes, Core manifest registry governance/design notes, and Core-owned tool search results. |
-| Tool execution visibility | `src/pages/HomePage.vue`, `src/components/ContextPanel.vue`, `src/components/OrchestrationTab.vue`, `src/api.ts` | Right rail presents Core-owned tool execution timeline state and step-result evidence. |
+| Tool execution visibility | `src/pages/HomePage.vue`, `src/components/ContextPanel.vue`, `src/components/OrchestrationTab.vue`, `src/api.ts` | Right rail presents Core-owned tool execution timeline state, provider layer, duration, checkpoint summary, and step-result evidence. |
 | Git handoff UI | `src/components/DiffTab.vue`, `src/components/ContextPanel.vue`, `src/api.ts` | Diff tab calls Gateway `git_worktree_manager` with `action: push_plan` for current-project push readiness and can create Core `git` approval requests; mutating Git execution remains approval-gated. |
 | Marketplace | `src/pages/MarketPage.vue` | Extension source/catalog/install flow. |
 | Debug Studio | `src/debug/DebugStudio.vue`, `src/debug/**` | Composables/types/components are feature-local. |
@@ -44,7 +44,7 @@ apps/desktop/
 - Code-suite UI is presentation-only: group/filter tool descriptors and project template summaries from Gateway/Core, but keep approval and execution ownership outside Desktop.
 - Git readiness UI is presentation plus approval-request only: request a Tool-layer preview from Gateway, show blockers/commands, and create Core approval records when needed; do not run Git directly or mint approval ids in Desktop.
 - Tool search UI must consume Core/Gateway `/api/v1/tools/search` results. Do not invent provider-layer, matched-field, or human-checkpoint semantics in the renderer.
-- Tool execution UI must consume Core/Gateway `/api/v1/sessions/{sessionId}/tool-executions` results. Do not reconstruct audit timelines from local event arrays in Desktop.
+- Tool execution UI must consume Core/Gateway `/api/v1/sessions/{sessionId}/tool-executions` results. Do not reconstruct audit timelines, provider layers, durations, or checkpoint summaries from local event arrays in Desktop.
 - Dev server is pinned: `127.0.0.1:5173`, `strictPort: true`.
 
 ## ANTI-PATTERNS

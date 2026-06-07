@@ -369,6 +369,7 @@ public sealed record ToolExecutionTimelineItemDto(
     string ToolId,
     string ToolDisplayName,
     string Source,
+    string ProviderLayer,
     string Risk,
     bool RequiresApproval,
     string Status,
@@ -378,9 +379,11 @@ public sealed record ToolExecutionTimelineItemDto(
     IReadOnlyList<string> Evidence,
     DateTimeOffset RequestedAt,
     DateTimeOffset UpdatedAt,
+    long DurationMs,
     long RequestedSeq,
     long UpdatedSeq,
-    IReadOnlyList<string> EventTypes);
+    IReadOnlyList<string> EventTypes,
+    string CheckpointSummary);
 
 public sealed record AgentLayerManifestDto(
     string Layer,
