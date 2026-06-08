@@ -216,6 +216,61 @@ export interface RuntimeReadinessReceiptDto {
   blocked_count: number;
 }
 
+export interface ToolLayerToolReadinessDto {
+  tool_id: string;
+  display_name: string;
+  source: string;
+  provider_layer: string;
+  risk: string;
+  status: string;
+  requires_approval: boolean;
+  requires_human_checkpoint: boolean;
+  is_future: boolean;
+  assigned_execution_agent_count: number;
+  summary: string;
+  evidence: string[];
+}
+
+export interface ToolLayerAgentScopeReadinessDto {
+  agent_id: string;
+  agent_name: string;
+  layer: string;
+  agent_type: string;
+  enabled: boolean;
+  status: string;
+  declared_scope_count: number;
+  dispatchable_tool_count: number;
+  internal_capability_count: number;
+  unresolved_scope_count: number;
+  approval_gated_tool_count: number;
+  tool_ids: string[];
+  unresolved_scopes: string[];
+  summary: string;
+  evidence: string[];
+}
+
+export interface ToolLayerReadinessReceiptDto {
+  status: string;
+  generated_at: string;
+  runtime: string;
+  receipt_id: string;
+  tool_count: number;
+  ready_tool_count: number;
+  warning_tool_count: number;
+  blocked_tool_count: number;
+  execution_agent_count: number;
+  ready_agent_count: number;
+  warning_agent_count: number;
+  blocked_agent_count: number;
+  approval_gated_tool_count: number;
+  human_checkpoint_tool_count: number;
+  future_tool_count: number;
+  unresolved_scope_count: number;
+  tools: ToolLayerToolReadinessDto[];
+  agent_scopes: ToolLayerAgentScopeReadinessDto[];
+  design_notes: string[];
+}
+
 export interface EventEnvelope {
   v: string;
   type: string;
@@ -674,6 +729,7 @@ export const api = {
   health: () => request<Record<string, unknown>>('/api/v1/health'),
   doctor: () => request<DoctorReportDto>('/api/v1/doctor'),
   readiness: () => request<RuntimeReadinessReceiptDto>('/api/v1/readiness'),
+  getToolLayerReadiness: () => request<ToolLayerReadinessReceiptDto>('/api/v1/tool-layer-readiness'),
   listProjects: () => request<ProjectDto[]>('/api/v1/projects'),
   createProject: (name: string, path: string) => request<ProjectDto>('/api/v1/projects', {
     method: 'POST',

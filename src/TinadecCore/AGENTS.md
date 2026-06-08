@@ -22,7 +22,7 @@ src/TinadecCore/
 | Change persistence | `Storage/CoreStore.cs` | Largest hotspot; pair with CoreStore tests. |
 | Change DTO/request | `Contracts/Models`, `Contracts/Events` | Mirror Desktop `api.ts` after Core changes. |
 | Prompt context engineering | `Services/PromptContextService.cs`, `Storage/CoreStore.cs`, `Services/ToolRegistryService.cs` | SQLite prompt fragments, preview assembly, Prompt Context Engineer fallback plan, and read-only `prompt_context_resolve` tool live in Core. |
-| Tool policy/discovery/audit | `Services/ToolRegistryService.cs`, `ToolSearchService.cs`, `ToolExecutionTimelineService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior, Core-owned tool registry, searchable discovery metadata, and tool execution timeline summaries. |
+| Tool policy/discovery/audit | `Services/ToolRegistryService.cs`, `ToolSearchService.cs`, `ToolLayerReadinessService.cs`, `ToolExecutionTimelineService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior, Core-owned tool registry, searchable discovery metadata, Tool-layer readiness receipts, and tool execution timeline summaries. |
 | Code-suite registration | `Services/ToolRegistryService.cs` | `CodeCapabilityProvider` registers Tool-layer Code capabilities; keep Code modeled as tools, not a peer orchestrator. |
 | Orchestration | `Services/OrchestratorService.cs`, `AgentWorkflowRuntime.cs` | Runs, task graph, read-only tools. |
 | Model providers | `Services/ModelProviderCatalog.cs`, `ModelReadinessService.cs`, `ModelCatalogReadinessService.cs`, `OpenAiCompatibleClient.cs` | Provider-instance model center, runtime readiness, and static catalog/module readiness receipts. |
@@ -42,6 +42,7 @@ src/TinadecCore/
 - `ToolRegistryService` publishes a canonical tool catalog and registry summary: duplicate tool ids are resolved inside Core before search, manifest, policy, or execution lookup can consume them.
 - `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep push/history mutations approval-gated.
 - Tool discovery is Core-owned. `/api/v1/tools/search` must derive provider layer, matched fields, and human-checkpoint summaries from Core descriptors and policy semantics.
+- Tool-layer readiness is Core-owned. `/api/v1/tool-layer-readiness` must derive dispatchability, future-tool state, human-checkpoint policy, and execution-agent scope resolution from Core descriptors and seeded agents.
 - Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state, provider layer, duration, checkpoint summary, and step-result evidence from Core events and descriptors.
 - Keep `project_templates` read-only and `project_template_scaffold` approval-gated as `workspace-write`; scaffolding must flow through Core approval before Gateway writes files.
 - `SecretProtector` uses DPAPI on Windows; non-Windows fallback is for development only.

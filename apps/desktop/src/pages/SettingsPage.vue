@@ -54,6 +54,7 @@ import {
   type SavePromptFragmentInput,
   type SaveModelProviderInstanceInput,
   type HarnessManifestDto,
+  type ToolLayerReadinessReceiptDto,
   type ToolDescriptorDto,
   type ToolSearchResultDto
 } from '../api'
@@ -129,6 +130,7 @@ const agents = ref<AgentProfileDto[]>([])
 const agentCandidates = ref<AgentCandidateDto[]>([])
 const availableTools = ref<ToolDescriptorDto[]>([])
 const harnessManifest = ref<HarnessManifestDto | null>(null)
+const toolLayerReadiness = ref<ToolLayerReadinessReceiptDto | null>(null)
 const toolSearchResults = ref<ToolSearchResultDto[]>([])
 const promptFragments = ref<PromptFragmentDto[]>([])
 const promptPreview = ref<PromptContextPreviewDto | null>(null)
@@ -289,6 +291,12 @@ const manifestRiskPolicies = computed(() => sortedRiskPolicies(harnessManifest.v
 const codeSuiteToolList = computed(() => codeSuiteTools(manifestToolList.value))
 const codexPrimitiveTools = computed(() => manifestToolList.value.filter((tool) => tool.source === 'codex-rust'))
 const supportedLanguages = computed(() => languageSupportFromTools(manifestToolList.value))
+const warningToolLayerTools = computed(() =>
+  (toolLayerReadiness.value?.tools ?? []).filter((tool) => tool.status !== 'ready')
+)
+const warningToolLayerAgents = computed(() =>
+  (toolLayerReadiness.value?.agent_scopes ?? []).filter((agent) => agent.status !== 'ready')
+)
 const toolSourceOptions = computed(() =>
   Array.from(new Set(manifestToolList.value.map((tool) => tool.source))).sort()
 )
@@ -443,14 +451,16 @@ async function loadModelCenter() {
 async function loadAgentCenter() {
   loading.value = true
   try {
-    const [modes, agentList, candidates] = await Promise.all([
+    const [modes, agentList, candidates, toolReadiness] = await Promise.all([
       api.listAgentModes(),
       api.listAgents(),
-      api.listAgentCandidates()
+      api.listAgentCandidates(),
+      api.getToolLayerReadiness().catch(() => null)
     ])
     agentModes.value = modes
     agents.value = agentList
     agentCandidates.value = candidates
+    toolLayerReadiness.value = toolReadiness
     // Harness manifest is non-critical: fall back to the legacy tool list for older Core builds.
     api.getHarnessManifest()
       .then((manifest) => {
@@ -1802,6 +1812,61 @@ loadPromptContextCenter()
             <ShieldCheck :size="14" />
             <span>{{ harnessManifest.runtime }} · {{ harnessManifest.ownership_model }}</span>
           </div>
+
+          <section v-if="toolLayerReadiness" class="tool-layer-readiness-panel">
+            <div class="model-readiness-head">
+              <div>
+                <h3>{{ t('settings.toolLayerReadiness') }}</h3>
+                <span>{{ toolLayerReadiness.receipt_id }}</span>
+              </div>
+              <UiBadge :variant="readinessVariant(toolLayerReadiness.status)">
+                <Circle :size="8" />
+                {{ toolLayerReadiness.status }}
+              </UiBadge>
+            </div>
+            <div class="model-readiness-metrics">
+              <div>
+                <strong>{{ toolLayerReadiness.tool_count }}</strong>
+                <span>{{ t('settings.toolsCount') }}</span>
+              </div>
+              <div>
+                <strong>{{ toolLayerReadiness.execution_agent_count }}</strong>
+                <span>{{ t('settings.executionAgents') }}</span>
+              </div>
+              <div>
+                <strong>{{ toolLayerReadiness.human_checkpoint_tool_count }}</strong>
+                <span>{{ t('settings.humanCheckpoints') }}</span>
+              </div>
+              <div>
+                <strong>{{ toolLayerReadiness.unresolved_scope_count }}</strong>
+                <span>{{ t('settings.unresolvedScopes') }}</span>
+              </div>
+            </div>
+            <div v-if="warningToolLayerTools.length > 0 || warningToolLayerAgents.length > 0" class="tool-layer-readiness-grid">
+              <div
+                v-for="tool in warningToolLayerTools.slice(0, 4)"
+                :key="tool.tool_id"
+                class="tool-layer-readiness-row"
+              >
+                <div>
+                  <strong>{{ tool.display_name }}</strong>
+                  <span>{{ tool.source }} · {{ tool.provider_layer }} · {{ tool.risk }}</span>
+                </div>
+                <UiBadge :variant="readinessVariant(tool.status)">{{ tool.status }}</UiBadge>
+              </div>
+              <div
+                v-for="agent in warningToolLayerAgents.slice(0, 4)"
+                :key="agent.agent_id"
+                class="tool-layer-readiness-row"
+              >
+                <div>
+                  <strong>{{ agent.agent_name }}</strong>
+                  <span>{{ agent.dispatchable_tool_count }} tools · {{ agent.unresolved_scope_count }} unresolved</span>
+                </div>
+                <UiBadge :variant="readinessVariant(agent.status)">{{ agent.status }}</UiBadge>
+              </div>
+            </div>
+          </section>
 
           <div v-if="harnessManifest?.tool_registry" class="model-section-header">
             <h3>{{ t('settings.toolRegistryGovernance') }}</h3>

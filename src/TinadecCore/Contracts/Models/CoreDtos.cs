@@ -175,6 +175,58 @@ public sealed record RuntimeReadinessReceiptDto(
     int WarningCount,
     int BlockedCount);
 
+public sealed record ToolLayerToolReadinessDto(
+    string ToolId,
+    string DisplayName,
+    string Source,
+    string ProviderLayer,
+    string Risk,
+    string Status,
+    bool RequiresApproval,
+    bool RequiresHumanCheckpoint,
+    bool IsFuture,
+    int AssignedExecutionAgentCount,
+    string Summary,
+    IReadOnlyList<string> Evidence);
+
+public sealed record ToolLayerAgentScopeReadinessDto(
+    string AgentId,
+    string AgentName,
+    string Layer,
+    string AgentType,
+    bool Enabled,
+    string Status,
+    int DeclaredScopeCount,
+    int DispatchableToolCount,
+    int InternalCapabilityCount,
+    int UnresolvedScopeCount,
+    int ApprovalGatedToolCount,
+    IReadOnlyList<string> ToolIds,
+    IReadOnlyList<string> UnresolvedScopes,
+    string Summary,
+    IReadOnlyList<string> Evidence);
+
+public sealed record ToolLayerReadinessReceiptDto(
+    string Status,
+    DateTimeOffset GeneratedAt,
+    string Runtime,
+    string ReceiptId,
+    int ToolCount,
+    int ReadyToolCount,
+    int WarningToolCount,
+    int BlockedToolCount,
+    int ExecutionAgentCount,
+    int ReadyAgentCount,
+    int WarningAgentCount,
+    int BlockedAgentCount,
+    int ApprovalGatedToolCount,
+    int HumanCheckpointToolCount,
+    int FutureToolCount,
+    int UnresolvedScopeCount,
+    IReadOnlyList<ToolLayerToolReadinessDto> Tools,
+    IReadOnlyList<ToolLayerAgentScopeReadinessDto> AgentScopes,
+    IReadOnlyList<string> DesignNotes);
+
 public sealed record ExtensionSourceDto(
     string Id,
     string Name,

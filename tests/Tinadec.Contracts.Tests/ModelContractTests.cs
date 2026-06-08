@@ -282,6 +282,79 @@ public sealed class ModelContractTests
     }
 
     [Fact]
+    public void ToolLayerReadinessReceiptContractSerializesToolAndAgentScopeEvidence()
+    {
+        var receipt = new ToolLayerReadinessReceiptDto(
+            Status: "warning",
+            GeneratedAt: DateTimeOffset.UnixEpoch,
+            Runtime: "tinadec-core-workflow",
+            ReceiptId: "tool_layer_readiness_1",
+            ToolCount: 1,
+            ReadyToolCount: 0,
+            WarningToolCount: 1,
+            BlockedToolCount: 0,
+            ExecutionAgentCount: 1,
+            ReadyAgentCount: 1,
+            WarningAgentCount: 0,
+            BlockedAgentCount: 0,
+            ApprovalGatedToolCount: 1,
+            HumanCheckpointToolCount: 1,
+            FutureToolCount: 1,
+            UnresolvedScopeCount: 0,
+            Tools:
+            [
+                new ToolLayerToolReadinessDto(
+                    "sandbox_exec",
+                    "Sandbox Exec",
+                    "codex-rust",
+                    "native-glue",
+                    "shell",
+                    "warning",
+                    RequiresApproval: true,
+                    RequiresHumanCheckpoint: true,
+                    IsFuture: true,
+                    AssignedExecutionAgentCount: 1,
+                    Summary: "Tool is declared for future integration.",
+                    Evidence: ["requires_human_checkpoint:True"])
+            ],
+            AgentScopes:
+            [
+                new ToolLayerAgentScopeReadinessDto(
+                    "executor_git_manager",
+                    "Git Manager Subagent",
+                    "execution",
+                    "git-manager",
+                    Enabled: true,
+                    Status: "ready",
+                    DeclaredScopeCount: 2,
+                    DispatchableToolCount: 1,
+                    InternalCapabilityCount: 1,
+                    UnresolvedScopeCount: 0,
+                    ApprovalGatedToolCount: 1,
+                    ToolIds: ["git_worktree_manager"],
+                    UnresolvedScopes: [],
+                    Summary: "Execution agent scope resolves to Core tools.",
+                    Evidence: ["dispatchable_tool_count:1"])
+            ],
+            DesignNotes: ["Core owns Tool-layer readiness."]);
+
+        var json = JsonSerializer.Serialize(receipt, JsonOptions);
+
+        Assert.Contains("\"receipt_id\":\"tool_layer_readiness_1\"", json);
+        Assert.Contains("\"tool_count\":1", json);
+        Assert.Contains("\"execution_agent_count\":1", json);
+        Assert.Contains("\"human_checkpoint_tool_count\":1", json);
+        Assert.Contains("\"unresolved_scope_count\":0", json);
+        Assert.Contains("\"tool_id\":\"sandbox_exec\"", json);
+        Assert.Contains("\"provider_layer\":\"native-glue\"", json);
+        Assert.Contains("\"requires_human_checkpoint\":true", json);
+        Assert.Contains("\"is_future\":true", json);
+        Assert.Contains("\"assigned_execution_agent_count\":1", json);
+        Assert.Contains("\"agent_scopes\"", json);
+        Assert.Contains("\"dispatchable_tool_count\":1", json);
+    }
+
+    [Fact]
     public void ModelReadinessReceiptContractSerializesProviderAndRouteEvidence()
     {
         var receipt = new ModelReadinessReceiptDto(

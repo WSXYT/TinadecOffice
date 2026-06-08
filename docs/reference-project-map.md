@@ -26,7 +26,7 @@ TinadecCode should continue absorbing ideas from the sibling repositories under
 ## Current TinadecCode Mappings
 
 - Codex/OpenCode inspired tool descriptors are now Core-visible through the harness manifest and tool search APIs.
-- T3 Code/OpenCode timeline and readiness ideas are reflected in the Core-owned tool execution timeline, `/api/v1/readiness` receipts, `/api/v1/model-readiness` provider/route receipts, `/api/v1/model-catalog-readiness` catalog/module receipts, and Desktop right rail/settings surfaces.
+- T3 Code/OpenCode timeline and readiness ideas are reflected in the Core-owned tool execution timeline, `/api/v1/readiness` receipts, `/api/v1/tool-layer-readiness` tool/scope receipts, `/api/v1/model-readiness` provider/route receipts, `/api/v1/model-catalog-readiness` catalog/module receipts, and Desktop right rail/settings surfaces.
 - Codex/T3 Code Git/worktree ideas are reflected in `executor_git_manager`, `git_worktree_manager`, and the Desktop Git push readiness panel.
 - OpenHarness-style multi-agent vocabulary is kept inside TinadecCode's two-layer split: planning agents actively coordinate; execution agents remain task-bound.
 

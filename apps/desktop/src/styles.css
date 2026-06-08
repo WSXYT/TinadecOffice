@@ -4460,6 +4460,58 @@ label {
   margin-bottom: 18px;
 }
 
+.tool-layer-readiness-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.tool-layer-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-layer-readiness-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  background: var(--bg-primary);
+}
+
+.tool-layer-readiness-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tool-layer-readiness-row strong,
+.tool-layer-readiness-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-layer-readiness-row strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.tool-layer-readiness-row span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .harness-registry-summary {
   display: grid;
   gap: 8px;
@@ -4676,6 +4728,11 @@ label {
   }
 
   .catalog-readiness-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tool-layer-readiness-row {
     align-items: flex-start;
     flex-direction: column;
   }

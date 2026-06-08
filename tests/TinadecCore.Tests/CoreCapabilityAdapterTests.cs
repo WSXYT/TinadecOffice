@@ -157,6 +157,47 @@ public sealed class CoreCapabilityAdapterTests
     }
 
     [Fact]
+    public void ToolLayerReadinessReceiptResolvesExecutionAgentScopesAndCheckpointPolicy()
+    {
+        var store = new CoreStore(Path.Combine(Path.GetTempPath(), $"tinadec-tool-layer-readiness-{Guid.NewGuid():N}.db"));
+        store.Initialize();
+        var service = new ToolLayerReadinessService(store, new ToolRegistryService());
+
+        var receipt = service.Check();
+
+        Assert.Equal(AgentWorkflowRuntime.RuntimeName, receipt.Runtime);
+        Assert.Equal("warning", receipt.Status);
+        Assert.StartsWith("tool_layer_readiness_", receipt.ReceiptId);
+        Assert.True(receipt.ToolCount > 0);
+        Assert.True(receipt.ExecutionAgentCount > 0);
+        Assert.True(receipt.HumanCheckpointToolCount > 0);
+        Assert.True(receipt.FutureToolCount > 0);
+        Assert.Contains(receipt.Tools, tool =>
+            tool.ToolId == "git_worktree_manager"
+            && tool.ProviderLayer == "tool-layer"
+            && tool.RequiresHumanCheckpoint
+            && tool.AssignedExecutionAgentCount > 0);
+        Assert.Contains(receipt.Tools, tool =>
+            tool.ToolId == "sandbox_exec"
+            && tool.Status == "warning"
+            && tool.IsFuture);
+        Assert.Contains(receipt.AgentScopes, agent =>
+            agent.AgentId == "executor_git_manager"
+            && agent.Status == "ready"
+            && agent.ToolIds.Contains("git_worktree_manager")
+            && agent.ToolIds.Contains("read_file")
+            && agent.UnresolvedScopeCount == 0
+            && agent.ApprovalGatedToolCount > 0);
+        Assert.Contains(receipt.AgentScopes, agent =>
+            agent.AgentId == "executor_code_explorer"
+            && agent.ToolIds.Contains("read_file")
+            && agent.ToolIds.Contains("grep_content")
+            && agent.ToolIds.Contains("glob_search")
+            && agent.UnresolvedScopeCount == 0);
+        Assert.Contains(receipt.DesignNotes, note => note.Contains("Core owns Tool-layer readiness", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ModelReadinessReceiptBlocksRoutesToUnavailableProviders()
     {
         var store = new CoreStore(Path.Combine(Path.GetTempPath(), $"tinadec-model-readiness-{Guid.NewGuid():N}.db"));

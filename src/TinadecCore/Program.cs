@@ -40,6 +40,7 @@ builder.Services.AddSingleton<HarnessManifestService>();
 builder.Services.AddSingleton<RuntimeReadinessService>();
 builder.Services.AddSingleton<ModelReadinessService>();
 builder.Services.AddSingleton<ModelCatalogReadinessService>();
+builder.Services.AddSingleton<ToolLayerReadinessService>();
 builder.Services.AddSingleton<ToolSearchService>();
 builder.Services.AddSingleton<ToolExecutionTimelineService>();
 builder.Services.AddSingleton<IAgentWorkflowRuntime, AgentWorkflowRuntime>();
@@ -104,6 +105,8 @@ app.MapGet("/api/v1/readiness", (RuntimeReadinessService readiness) => Results.O
 app.MapGet("/api/v1/model-readiness", (ModelReadinessService readiness) => Results.Ok(readiness.Check()));
 
 app.MapGet("/api/v1/model-catalog-readiness", (ModelCatalogReadinessService readiness) => Results.Ok(readiness.Check()));
+
+app.MapGet("/api/v1/tool-layer-readiness", (ToolLayerReadinessService readiness) => Results.Ok(readiness.Check()));
 
 app.MapGet("/api/v1/projects", (CoreStore coreStore) => Results.Ok(coreStore.ListProjects()));
 
