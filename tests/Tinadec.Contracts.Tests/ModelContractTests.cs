@@ -337,6 +337,56 @@ public sealed class ModelContractTests
     }
 
     [Fact]
+    public void ModelCatalogReadinessReceiptContractSerializesTemplateEvidence()
+    {
+        var receipt = new ModelCatalogReadinessReceiptDto(
+            Status: "warning",
+            GeneratedAt: DateTimeOffset.UnixEpoch,
+            ReceiptId: "model_catalog_readiness_1",
+            TemplateCount: 1,
+            ReadyTemplateCount: 0,
+            WarningTemplateCount: 1,
+            BlockedTemplateCount: 0,
+            RuntimeModuleCount: 3,
+            ConfiguredProviderCount: 1,
+            AdvisoryProbeTemplateCount: 1,
+            Templates:
+            [
+                new ModelCatalogTemplateReadinessDto(
+                    "openai-compatible",
+                    "openai-compatible",
+                    "OpenAI Compatible",
+                    "http",
+                    "api_key",
+                    "warning",
+                    "openai-compatible",
+                    "registered",
+                    ConfiguredInstanceCount: 1,
+                    SupportsLiveDiscovery: true,
+                    LiveDiscoveryPolicy: "credential_gated_remote_advisory",
+                    Summary: "Template is available through the Core catalog.",
+                    Evidence:
+                    [
+                        "runtime_module_status:registered",
+                        "live_discovery_policy:credential_gated_remote_advisory"
+                    ])
+            ],
+            DesignNotes: ["Core owns model catalog readiness."]);
+
+        var json = JsonSerializer.Serialize(receipt, JsonOptions);
+
+        Assert.Contains("\"receipt_id\":\"model_catalog_readiness_1\"", json);
+        Assert.Contains("\"template_count\":1", json);
+        Assert.Contains("\"runtime_module_count\":3", json);
+        Assert.Contains("\"advisory_probe_template_count\":1", json);
+        Assert.Contains("\"runtime_module_family\":\"openai-compatible\"", json);
+        Assert.Contains("\"runtime_module_status\":\"registered\"", json);
+        Assert.Contains("\"configured_instance_count\":1", json);
+        Assert.Contains("\"supports_live_discovery\":true", json);
+        Assert.Contains("\"live_discovery_policy\":\"credential_gated_remote_advisory\"", json);
+    }
+
+    [Fact]
     public void PromptFragmentContractUsesPlanFieldNames()
     {
         var fragment = new PromptFragmentDto(

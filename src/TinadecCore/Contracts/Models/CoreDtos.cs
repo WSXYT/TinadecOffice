@@ -118,6 +118,35 @@ public sealed record ModelReadinessReceiptDto(
     IReadOnlyList<ModelRouteReadinessDto> Routes,
     IReadOnlyList<string> DesignNotes);
 
+public sealed record ModelCatalogTemplateReadinessDto(
+    string ProviderFamily,
+    string Driver,
+    string DisplayName,
+    string ConnectionKind,
+    string CredentialKind,
+    string Status,
+    string RuntimeModuleFamily,
+    string RuntimeModuleStatus,
+    int ConfiguredInstanceCount,
+    bool SupportsLiveDiscovery,
+    string LiveDiscoveryPolicy,
+    string Summary,
+    IReadOnlyList<string> Evidence);
+
+public sealed record ModelCatalogReadinessReceiptDto(
+    string Status,
+    DateTimeOffset GeneratedAt,
+    string ReceiptId,
+    int TemplateCount,
+    int ReadyTemplateCount,
+    int WarningTemplateCount,
+    int BlockedTemplateCount,
+    int RuntimeModuleCount,
+    int ConfiguredProviderCount,
+    int AdvisoryProbeTemplateCount,
+    IReadOnlyList<ModelCatalogTemplateReadinessDto> Templates,
+    IReadOnlyList<string> DesignNotes);
+
 public sealed record DoctorCheckDto(
     string Name,
     string Status,

@@ -25,7 +25,7 @@ src/TinadecCore/
 | Tool policy/discovery/audit | `Services/ToolRegistryService.cs`, `ToolSearchService.cs`, `ToolExecutionTimelineService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior, Core-owned tool registry, searchable discovery metadata, and tool execution timeline summaries. |
 | Code-suite registration | `Services/ToolRegistryService.cs` | `CodeCapabilityProvider` registers Tool-layer Code capabilities; keep Code modeled as tools, not a peer orchestrator. |
 | Orchestration | `Services/OrchestratorService.cs`, `AgentWorkflowRuntime.cs` | Runs, task graph, read-only tools. |
-| Model providers | `Services/ModelProviderCatalog.cs`, `OpenAiCompatibleClient.cs` | Provider-instance model center. |
+| Model providers | `Services/ModelProviderCatalog.cs`, `ModelReadinessService.cs`, `ModelCatalogReadinessService.cs`, `OpenAiCompatibleClient.cs` | Provider-instance model center, runtime readiness, and static catalog/module readiness receipts. |
 | Debug/tracing | `Tracing/*`, `Debug/*` | Agent Debug Studio backend. |
 | Tests | `tests/TinadecCore.Tests`, `tests/Tinadec.Contracts.Tests` | xUnit; contracts split from behavior tests. |
 
@@ -33,6 +33,7 @@ src/TinadecCore/
 - Target framework is `net10.0`; nullable and implicit usings are enabled.
 - HTTP JSON uses `JsonNamingPolicy.SnakeCaseLower`; keep event/DTO casing stable.
 - Provider catalog templates now expose family, driver, connection kind, credential kind, timeout, and capability metadata.
+- `ModelCatalogReadinessService` owns `/api/v1/model-catalog-readiness`; Gateway/Desktop may display the receipt but must not recompute template coverage, runtime module registration, or live-discovery policy.
 - `CoreStore` is SQLite-first and seeds built-in agents/providers/routes/extensions.
 - `CoreStore` seeds built-in prompt fragments and stores custom prompt fragments/plans. Built-in prompt fragments are read-only; clone them before editing.
 - `PromptContextService` owns Meeting Agent system prompt assembly. Keep full prompt text out of events/tool results; log only fragment ids, estimated token count, context pack ids, and warning counts.

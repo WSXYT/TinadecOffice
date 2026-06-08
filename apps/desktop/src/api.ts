@@ -143,6 +143,37 @@ export interface ModelReadinessReceiptDto {
   design_notes: string[];
 }
 
+export interface ModelCatalogTemplateReadinessDto {
+  provider_family: string;
+  driver: string;
+  display_name: string;
+  connection_kind: string;
+  credential_kind: string;
+  status: string;
+  runtime_module_family: string;
+  runtime_module_status: string;
+  configured_instance_count: number;
+  supports_live_discovery: boolean;
+  live_discovery_policy: string;
+  summary: string;
+  evidence: string[];
+}
+
+export interface ModelCatalogReadinessReceiptDto {
+  status: string;
+  generated_at: string;
+  receipt_id: string;
+  template_count: number;
+  ready_template_count: number;
+  warning_template_count: number;
+  blocked_template_count: number;
+  runtime_module_count: number;
+  configured_provider_count: number;
+  advisory_probe_template_count: number;
+  templates: ModelCatalogTemplateReadinessDto[];
+  design_notes: string[];
+}
+
 export interface SaveModelProviderInstanceInput {
   id?: string | null;
   driver: string;
@@ -696,6 +727,7 @@ export const api = {
   listModelProviderTemplates: () => request<ModelProviderTemplateDto[]>('/api/v1/model-provider-templates'),
   listModelProviders: () => request<ModelProviderInstanceDto[]>('/api/v1/model-providers'),
   getModelReadiness: () => request<ModelReadinessReceiptDto>('/api/v1/model-readiness'),
+  getModelCatalogReadiness: () => request<ModelCatalogReadinessReceiptDto>('/api/v1/model-catalog-readiness'),
   createModelProvider: (provider: SaveModelProviderInstanceInput) => request<ModelProviderInstanceDto>('/api/v1/model-providers', {
     method: 'POST',
     body: JSON.stringify(provider)

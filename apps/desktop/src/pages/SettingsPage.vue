@@ -43,6 +43,8 @@ import {
   type AgentCandidateDto,
   type AgentModeDto,
   type AgentProfileDto,
+  type ModelCatalogReadinessReceiptDto,
+  type ModelCatalogTemplateReadinessDto,
   type ModelProviderReadinessDto,
   type ModelProviderInstanceDto,
   type ModelReadinessReceiptDto,
@@ -120,6 +122,7 @@ function closeWindow() {
 const activeSection = ref<SettingsSection>('model')
 const providers = ref<ModelProviderInstanceDto[]>([])
 const modelReadiness = ref<ModelReadinessReceiptDto | null>(null)
+const modelCatalogReadiness = ref<ModelCatalogReadinessReceiptDto | null>(null)
 const routes = ref<ModelRouteDto[]>([])
 const agentModes = ref<AgentModeDto[]>([])
 const agents = ref<AgentProfileDto[]>([])
@@ -218,6 +221,19 @@ const providerReadinessById = computed(() => {
 const blockedModelRoutes = computed(() =>
   (modelReadiness.value?.routes ?? []).filter((route) => route.status === 'blocked')
 )
+const warningCatalogTemplates = computed(() =>
+  (modelCatalogReadiness.value?.templates ?? []).filter((template) => template.status !== 'ready')
+)
+const advisoryCatalogTemplates = computed(() =>
+  (modelCatalogReadiness.value?.templates ?? []).filter((template) => template.supports_live_discovery)
+)
+const catalogReadinessByDriver = computed(() => {
+  const map = new Map<string, ModelCatalogTemplateReadinessDto>()
+  for (const template of modelCatalogReadiness.value?.templates ?? []) {
+    map.set(template.driver, template)
+  }
+  return map
+})
 
 const formFields = computed(() => currentTemplate.value?.fields ?? {
   base_url: true, model: true, api_key: true,
@@ -404,14 +420,16 @@ function closeModal() {
 async function loadModelCenter() {
   loading.value = true
   try {
-    const [instances, modelRoutes, readiness] = await Promise.all([
+    const [instances, modelRoutes, readiness, catalogReadiness] = await Promise.all([
       api.listModelProviders(),
       api.listModelRoutes(),
-      api.getModelReadiness()
+      api.getModelReadiness(),
+      api.getModelCatalogReadiness()
     ])
     providers.value = instances
     routes.value = modelRoutes
     modelReadiness.value = readiness
+    modelCatalogReadiness.value = catalogReadiness
 
     const selected = instances.find((provider) => provider.id === selectedProviderId.value) ?? instances[0]
     if (selected) {
@@ -937,6 +955,52 @@ loadPromptContextCenter()
             </div>
           </section>
 
+          <section v-if="modelCatalogReadiness" class="model-readiness-panel catalog-readiness-panel">
+            <div class="model-readiness-head">
+              <div>
+                <h3>Catalog Readiness</h3>
+                <span>{{ modelCatalogReadiness.receipt_id }}</span>
+              </div>
+              <UiBadge :variant="readinessVariant(modelCatalogReadiness.status)">
+                <Circle :size="8" />
+                {{ modelCatalogReadiness.status }}
+              </UiBadge>
+            </div>
+            <div class="model-readiness-metrics">
+              <div>
+                <strong>{{ modelCatalogReadiness.ready_template_count }}</strong>
+                <span>ready templates</span>
+              </div>
+              <div>
+                <strong>{{ modelCatalogReadiness.warning_template_count }}</strong>
+                <span>warnings</span>
+              </div>
+              <div>
+                <strong>{{ modelCatalogReadiness.runtime_module_count }}</strong>
+                <span>runtime modules</span>
+              </div>
+              <div>
+                <strong>{{ modelCatalogReadiness.advisory_probe_template_count }}</strong>
+                <span>advisory probes</span>
+              </div>
+            </div>
+            <div class="catalog-readiness-rows">
+              <div
+                v-for="template in (warningCatalogTemplates.length > 0 ? warningCatalogTemplates : advisoryCatalogTemplates).slice(0, 5)"
+                :key="template.driver"
+                class="catalog-readiness-row"
+              >
+                <div>
+                  <strong>{{ template.display_name }}</strong>
+                  <span>{{ template.runtime_module_family }} · {{ template.live_discovery_policy }}</span>
+                </div>
+                <UiBadge :variant="readinessVariant(template.status)">
+                  {{ template.runtime_module_status }}
+                </UiBadge>
+              </div>
+            </div>
+          </section>
+
           <div class="model-section-header">
             <h3>{{ t('settings.addedProviders') }}</h3>
             <UiButton variant="ghost" size="icon" :title="t('settings.newProvider')" @click="openAddModal()">
@@ -1029,6 +1093,22 @@ loadPromptContextCenter()
                 <div v-if="provider.status_message" class="provider-status-note">
                   <Terminal :size="14" />
                   <span>{{ provider.status_message }}</span>
+                </div>
+
+                <div v-if="catalogReadinessByDriver.get(provider.driver)" class="provider-readiness-detail">
+                  <div class="provider-readiness-detail-head">
+                    <span>Catalog receipt</span>
+                    <UiBadge :variant="readinessVariant(catalogReadinessByDriver.get(provider.driver)!.status)">
+                      <Circle :size="8" />
+                      {{ catalogReadinessByDriver.get(provider.driver)!.status }}
+                    </UiBadge>
+                  </div>
+                  <p>{{ catalogReadinessByDriver.get(provider.driver)!.summary }}</p>
+                  <div class="provider-readiness-evidence">
+                    <span>{{ catalogReadinessByDriver.get(provider.driver)!.runtime_module_family }}</span>
+                    <span>{{ catalogReadinessByDriver.get(provider.driver)!.runtime_module_status }}</span>
+                    <span>{{ catalogReadinessByDriver.get(provider.driver)!.live_discovery_policy }}</span>
+                  </div>
                 </div>
 
                 <div v-if="providerReadinessById.get(provider.id)" class="provider-readiness-detail">
