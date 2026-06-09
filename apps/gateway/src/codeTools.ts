@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -546,6 +546,10 @@ async function executeGitWorktreeManager(
     }, [`git:${action}`, 'approval:supplied', 'mutation:not-implemented']);
   }
 
+  if (action === 'diff_preview') {
+    return executeGitDiffPreview(spec, request, args, gitRoot);
+  }
+
   if (action !== 'status' && action !== 'push_plan' && action !== 'worktrees') {
     return failedResult(spec, `Unsupported git_worktree_manager action '${action}'.`, args, ['git:unsupported-action']);
   }
@@ -583,6 +587,7 @@ async function executeGitWorktreeManager(
     behind: statusSummary.behind,
     has_uncommitted_changes: statusSummary.hasUncommittedChanges,
     changed_entries: statusSummary.changedEntries,
+    files: statusSummary.files,
     diff_stat: diffStat.stdout.trim(),
     recent_commits: nonEmptyLines(recentCommits.stdout),
     remotes: remoteLines,
@@ -810,6 +815,113 @@ async function executeGitPush(
   }, ['git:push', 'approval:supplied', 'confirmation:supplied']);
 }
 
+async function executeGitDiffPreview(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  const target = stringArg(args, 'target') ?? 'all';
+  const allowedTargets = new Set(['all', 'working_tree', 'staged', 'branch_range']);
+  if (!allowedTargets.has(target)) {
+    return failedResult(spec, `Unsupported diff_preview target '${target}'.`, args, ['git:diff-preview', 'git:unsupported-target']);
+  }
+
+  const maxFiles = clampNumber(numberArg(args, 'max_files') ?? 64, 1, 250);
+  const maxDiffBytes = clampNumber(numberArg(args, 'max_diff_bytes') ?? 120_000, 4_000, 1_000_000);
+  const includeUntracked = args.include_untracked !== false;
+  const status = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  if (status.code !== 0) {
+    return gitCommandFailedResult(spec, 'Unable to inspect Git status for diff preview.', args, gitRoot, 'diff_preview', status, ['git:diff-preview', 'git:status']);
+  }
+
+  const statusSummary = parseGitStatus(status.stdout);
+  const sections: GitDiffPreviewSection[] = [];
+
+  if (target === 'all' || target === 'working_tree') {
+    const workingTree = await buildDiffPreviewSection(gitRoot, {
+      id: 'working_tree',
+      kind: 'working_tree',
+      title: 'Working Tree',
+      subtitle: 'Tracked and untracked workspace changes',
+      diffArgs: ['diff', '-M', '--no-ext-diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/'],
+      numstatArgs: ['diff', '-M', '--numstat', '-z'],
+      nameStatusArgs: ['diff', '-M', '--name-status', '-z'],
+      untrackedFiles: includeUntracked
+        ? statusSummary.files.filter((file) => file.is_untracked).map((file) => file.path)
+        : [],
+      maxFiles,
+      maxDiffBytes
+    });
+    if (workingTree.file_count > 0 || workingTree.notices.length > 0) {
+      sections.push(workingTree);
+    }
+  }
+
+  if (target === 'all' || target === 'staged') {
+    const staged = await buildDiffPreviewSection(gitRoot, {
+      id: 'staged',
+      kind: 'staged',
+      title: 'Staged',
+      subtitle: 'Index changes ready for commit',
+      diffArgs: ['diff', '--cached', '-M', '--no-ext-diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/'],
+      numstatArgs: ['diff', '--cached', '-M', '--numstat', '-z'],
+      nameStatusArgs: ['diff', '--cached', '-M', '--name-status', '-z'],
+      untrackedFiles: [],
+      maxFiles,
+      maxDiffBytes
+    });
+    if (staged.file_count > 0 || staged.notices.length > 0) {
+      sections.push(staged);
+    }
+  }
+
+  if (target === 'all' || target === 'branch_range') {
+    const baseRef = stringArg(args, 'base_ref') ?? defaultBaseRef(statusSummary);
+    const headRef = stringArg(args, 'head_ref') ?? 'HEAD';
+    if (!baseRef) {
+      if (target === 'branch_range') {
+        sections.push(emptyNoticeSection('branch_range', 'Branch Range', 'Base branch unavailable', null, headRef, ['No upstream or base_ref is available for branch range diff.']));
+      }
+    } else {
+      const branchRange = await buildDiffPreviewSection(gitRoot, {
+        id: 'branch_range',
+        kind: 'branch_range',
+        title: 'Branch Range',
+        subtitle: `${baseRef} ... ${headRef}`,
+        baseRef,
+        headRef,
+        diffArgs: ['diff', '-M', '--no-ext-diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', `${baseRef}...${headRef}`],
+        numstatArgs: ['diff', '-M', '--numstat', '-z', `${baseRef}...${headRef}`],
+        nameStatusArgs: ['diff', '-M', '--name-status', '-z', `${baseRef}...${headRef}`],
+        untrackedFiles: [],
+        maxFiles,
+        maxDiffBytes
+      });
+      if (branchRange.file_count > 0 || branchRange.notices.length > 0 || target === 'branch_range') {
+        sections.push(branchRange);
+      }
+    }
+  }
+
+  const totalFiles = sections.reduce((count, section) => count + section.file_count, 0);
+  return resultFor(spec, 'completed', totalFiles > 0 ? `Prepared ${totalFiles} Git diff file previews.` : `No Git diff changes for ${statusSummary.branch}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'diff_preview',
+    target,
+    branch: statusSummary.branch,
+    upstream: statusSummary.upstream,
+    ahead: statusSummary.ahead,
+    behind: statusSummary.behind,
+    has_uncommitted_changes: statusSummary.hasUncommittedChanges,
+    files: statusSummary.files,
+    sections,
+    max_files: maxFiles,
+    max_diff_bytes: maxDiffBytes
+  }, ['git:diff-preview', 'git:status']);
+}
+
 interface GitCommandResult {
   code: number;
   stdout: string;
@@ -823,6 +935,59 @@ interface GitStatusSummary {
   behind: number;
   hasUncommittedChanges: boolean;
   changedEntries: string[];
+  files: GitStatusFile[];
+}
+
+interface GitStatusFile {
+  path: string;
+  previous_path: string | null;
+  staged_status: string;
+  unstaged_status: string;
+  status: string;
+  is_untracked: boolean;
+  is_conflicted: boolean;
+  is_renamed: boolean;
+}
+
+interface GitDiffFileSummary {
+  path: string;
+  previous_path: string | null;
+  change_type: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  truncated: boolean;
+  preview?: string;
+}
+
+interface GitDiffPreviewSection {
+  id: string;
+  kind: 'working_tree' | 'staged' | 'branch_range';
+  title: string;
+  subtitle: string | null;
+  base_ref: string | null;
+  head_ref: string | null;
+  diff: string;
+  files: GitDiffFileSummary[];
+  file_count: number;
+  additions: number;
+  deletions: number;
+  notices: string[];
+}
+
+interface GitDiffPreviewBuildOptions {
+  id: string;
+  kind: GitDiffPreviewSection['kind'];
+  title: string;
+  subtitle: string | null;
+  baseRef?: string | null;
+  headRef?: string | null;
+  diffArgs: string[];
+  numstatArgs: string[];
+  nameStatusArgs: string[];
+  untrackedFiles: string[];
+  maxFiles: number;
+  maxDiffBytes: number;
 }
 
 async function git(cwd: string, args: string[]): Promise<GitCommandResult> {
@@ -876,8 +1041,338 @@ function parseGitStatus(output: string): GitStatusSummary {
     ahead,
     behind,
     hasUncommittedChanges: changedEntries.length > 0,
-    changedEntries
+    changedEntries,
+    files: changedEntries.map(parseGitStatusFile)
   };
+}
+
+function parseGitStatusFile(line: string): GitStatusFile {
+  const stagedCode = line[0] ?? ' ';
+  const unstagedCode = line[1] ?? ' ';
+  const rawPath = line.slice(3);
+  const renameParts = rawPath.split(' -> ');
+  const isRenamed = renameParts.length === 2 || stagedCode === 'R' || unstagedCode === 'R';
+  const previousPath = isRenamed && renameParts.length === 2 ? renameParts[0] : null;
+  const filePath = isRenamed && renameParts.length === 2 ? renameParts[1] : rawPath;
+  const isConflicted = stagedCode === 'U' || unstagedCode === 'U' || ['AA', 'DD', 'AU', 'UA', 'DU', 'UD'].includes(`${stagedCode}${unstagedCode}`);
+  const isUntracked = stagedCode === '?' && unstagedCode === '?';
+
+  return {
+    path: filePath,
+    previous_path: previousPath,
+    staged_status: gitStatusCodeLabel(stagedCode),
+    unstaged_status: gitStatusCodeLabel(unstagedCode),
+    status: gitCombinedStatusLabel(stagedCode, unstagedCode),
+    is_untracked: isUntracked,
+    is_conflicted: isConflicted,
+    is_renamed: isRenamed
+  };
+}
+
+function gitStatusCodeLabel(code: string): string {
+  switch (code) {
+    case 'A': return 'added';
+    case 'M': return 'modified';
+    case 'D': return 'deleted';
+    case 'R': return 'renamed';
+    case 'C': return 'copied';
+    case 'U': return 'unmerged';
+    case '?': return 'untracked';
+    case '!': return 'ignored';
+    case ' ': return 'clean';
+    default: return code === '' ? 'clean' : code;
+  }
+}
+
+function gitCombinedStatusLabel(stagedCode: string, unstagedCode: string): string {
+  if (stagedCode === '?' && unstagedCode === '?') return 'untracked';
+  if (stagedCode === 'U' || unstagedCode === 'U') return 'conflicted';
+  if (stagedCode === 'R' || unstagedCode === 'R') return 'renamed';
+  if (stagedCode !== ' ' && unstagedCode !== ' ') return 'staged_and_modified';
+  if (stagedCode !== ' ') return `staged_${gitStatusCodeLabel(stagedCode)}`;
+  if (unstagedCode !== ' ') return gitStatusCodeLabel(unstagedCode);
+  return 'clean';
+}
+
+async function buildDiffPreviewSection(
+  gitRoot: string,
+  options: GitDiffPreviewBuildOptions
+): Promise<GitDiffPreviewSection> {
+  const notices: string[] = [];
+  const [diff, numstat, nameStatus] = await Promise.all([
+    git(gitRoot, options.diffArgs),
+    git(gitRoot, options.numstatArgs),
+    git(gitRoot, options.nameStatusArgs)
+  ]);
+
+  if (diff.code !== 0) {
+    notices.push(diff.stderr || `git ${options.diffArgs.join(' ')} failed.`);
+  }
+  if (numstat.code !== 0) {
+    notices.push(numstat.stderr || `git ${options.numstatArgs.join(' ')} failed.`);
+  }
+  if (nameStatus.code !== 0) {
+    notices.push(nameStatus.stderr || `git ${options.nameStatusArgs.join(' ')} failed.`);
+  }
+
+  let diffText = diff.code === 0 ? diff.stdout : '';
+  const trackedFiles = mergeDiffFileMetadata(
+    parseGitNumstat(numstat.code === 0 ? numstat.stdout : ''),
+    parseGitNameStatus(nameStatus.code === 0 ? nameStatus.stdout : '')
+  );
+  const untrackedFiles = await summarizeUntrackedFiles(gitRoot, options.untrackedFiles, options.maxDiffBytes);
+  let files = [...trackedFiles, ...untrackedFiles];
+
+  if (files.length > options.maxFiles) {
+    notices.push(`Showing ${options.maxFiles} of ${files.length} changed files.`);
+    files = files.slice(0, options.maxFiles);
+  }
+
+  const untrackedDiff = untrackedFiles
+    .slice(0, Math.max(0, options.maxFiles - trackedFiles.length))
+    .map((file) => file.binary ? `Binary file ${file.path} is untracked\n` : buildUntrackedDiffNotice(file))
+    .join('');
+  if (untrackedDiff.length > 0) {
+    diffText = diffText.length > 0 ? `${diffText}${diffText.endsWith('\n') ? '' : '\n'}${untrackedDiff}` : untrackedDiff;
+  }
+
+  const truncatedDiff = truncateTextByBytes(diffText, options.maxDiffBytes);
+  if (truncatedDiff.truncated) {
+    notices.push(`Diff text truncated to ${options.maxDiffBytes} bytes.`);
+  }
+
+  const additions = files.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+  return {
+    id: options.id,
+    kind: options.kind,
+    title: options.title,
+    subtitle: options.subtitle,
+    base_ref: options.baseRef ?? null,
+    head_ref: options.headRef ?? null,
+    diff: truncatedDiff.text,
+    files,
+    file_count: files.length,
+    additions,
+    deletions,
+    notices
+  };
+}
+
+function parseGitNumstat(output: string): GitDiffFileSummary[] {
+  const tokens = splitNul(output);
+  const files: GitDiffFileSummary[] = [];
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    const parts = token.split('\t');
+    if (parts.length < 3) {
+      continue;
+    }
+
+    const [additionsToken, deletionsToken, inlinePath] = parts;
+    let pathToken = inlinePath;
+    let previousPath: string | null = null;
+    if (inlinePath === '' && index + 2 < tokens.length) {
+      previousPath = tokens[++index] ?? null;
+      pathToken = tokens[++index] ?? '';
+    }
+    if (!pathToken) continue;
+
+    const additions = additionsToken === '-' ? 0 : Number(additionsToken);
+    const deletions = deletionsToken === '-' ? 0 : Number(deletionsToken);
+    files.push({
+      path: pathToken,
+      previous_path: previousPath,
+      change_type: 'modified',
+      additions: Number.isFinite(additions) ? additions : 0,
+      deletions: Number.isFinite(deletions) ? deletions : 0,
+      binary: additionsToken === '-' || deletionsToken === '-',
+      truncated: false
+    });
+  }
+  return files;
+}
+
+function parseGitNameStatus(output: string): Map<string, { change_type: string; previous_path: string | null }> {
+  const tokens = splitNul(output);
+  const map = new Map<string, { change_type: string; previous_path: string | null }>();
+  for (let index = 0; index < tokens.length;) {
+    const code = tokens[index++];
+    if (!code) break;
+
+    const changeCode = code[0] ?? 'M';
+    if (changeCode === 'R' || changeCode === 'C') {
+      const previousPath = tokens[index++] ?? '';
+      const filePath = tokens[index++] ?? '';
+      if (filePath) {
+        map.set(filePath, { change_type: gitNameStatusLabel(changeCode), previous_path: previousPath || null });
+      }
+      continue;
+    }
+
+    const filePath = tokens[index++] ?? '';
+    if (filePath) {
+      map.set(filePath, { change_type: gitNameStatusLabel(changeCode), previous_path: null });
+    }
+  }
+  return map;
+}
+
+function mergeDiffFileMetadata(
+  numstatFiles: GitDiffFileSummary[],
+  nameStatuses: Map<string, { change_type: string; previous_path: string | null }>
+): GitDiffFileSummary[] {
+  const byPath = new Map(numstatFiles.map((file) => [file.path, file]));
+  for (const [filePath, status] of nameStatuses.entries()) {
+    const existing = byPath.get(filePath);
+    if (existing) {
+      existing.change_type = status.change_type;
+      existing.previous_path = status.previous_path ?? existing.previous_path;
+      continue;
+    }
+
+    byPath.set(filePath, {
+      path: filePath,
+      previous_path: status.previous_path,
+      change_type: status.change_type,
+      additions: 0,
+      deletions: 0,
+      binary: false,
+      truncated: false
+    });
+  }
+  return [...byPath.values()];
+}
+
+function gitNameStatusLabel(code: string): string {
+  switch (code) {
+    case 'A': return 'added';
+    case 'D': return 'deleted';
+    case 'R': return 'renamed';
+    case 'C': return 'copied';
+    case 'T': return 'type_changed';
+    case 'U': return 'conflicted';
+    default: return 'modified';
+  }
+}
+
+async function summarizeUntrackedFiles(
+  gitRoot: string,
+  rawPaths: string[],
+  maxDiffBytes: number
+): Promise<GitDiffFileSummary[]> {
+  const files: GitDiffFileSummary[] = [];
+  for (const rawPath of rawPaths) {
+    const normalized = normalizeGitPathspec(gitRoot, rawPath);
+    if (!normalized.ok) {
+      continue;
+    }
+
+    const absolutePath = path.resolve(gitRoot, rawPath);
+    try {
+      const fileStat = await stat(absolutePath);
+      if (!fileStat.isFile()) {
+        continue;
+      }
+
+      const sample = await readFile(absolutePath);
+      const binary = sample.subarray(0, Math.min(sample.length, 8_000)).includes(0);
+      const text = binary ? '' : sample.toString('utf8');
+      const lineCount = binary ? 0 : text.split(/\r?\n/).filter((line) => line.length > 0).length;
+      files.push({
+        path: rawPath,
+        previous_path: null,
+        change_type: 'untracked',
+        additions: lineCount,
+        deletions: 0,
+        binary,
+        truncated: sample.byteLength > maxDiffBytes,
+        preview: binary ? undefined : truncateTextByBytes(text, Math.min(maxDiffBytes, 40_000)).text
+      });
+    } catch {
+      files.push({
+        path: rawPath,
+        previous_path: null,
+        change_type: 'untracked',
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        truncated: false,
+        preview: undefined
+      });
+    }
+  }
+  return files;
+}
+
+function buildUntrackedDiffNotice(file: GitDiffFileSummary): string {
+  const lines = (file.preview ?? '[untracked file preview unavailable]\n')
+    .split(/\r?\n/)
+    .map((line) => `+${line}`)
+    .join('\n');
+  return [
+    `diff --git a/${file.path} b/${file.path}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${file.path}`,
+    `@@ -0,0 +1,${Math.max(file.additions, 1)} @@`,
+    lines,
+    file.truncated ? '+[untracked file preview truncated]' : null,
+    ''
+  ].filter((line): line is string => line !== null).join('\n');
+}
+
+function emptyNoticeSection(
+  kind: GitDiffPreviewSection['kind'],
+  title: string,
+  subtitle: string | null,
+  baseRef: string | null,
+  headRef: string | null,
+  notices: string[]
+): GitDiffPreviewSection {
+  return {
+    id: kind,
+    kind,
+    title,
+    subtitle,
+    base_ref: baseRef,
+    head_ref: headRef,
+    diff: '',
+    files: [],
+    file_count: 0,
+    additions: 0,
+    deletions: 0,
+    notices
+  };
+}
+
+function splitNul(output: string): string[] {
+  return output.split('\0').filter((token) => token.length > 0);
+}
+
+function truncateTextByBytes(value: string, maxBytes: number): { text: string; truncated: boolean } {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) {
+    return { text: value, truncated: false };
+  }
+
+  let used = 0;
+  let output = '';
+  for (const char of value) {
+    const size = Buffer.byteLength(char, 'utf8');
+    if (used + size > maxBytes) {
+      break;
+    }
+    output += char;
+    used += size;
+  }
+  return { text: `${output}\n[diff truncated]\n`, truncated: true };
+}
+
+function defaultBaseRef(status: GitStatusSummary): string | null {
+  if (status.upstream) {
+    return status.upstream;
+  }
+  return null;
 }
 
 function parseWorktrees(output: string): Array<Record<string, string | boolean>> {
@@ -940,6 +1435,22 @@ function nonEmptyLines(output: string): string[] {
 
 function booleanArg(args: Record<string, unknown>, key: string): boolean {
   return args[key] === true;
+}
+
+function numberArg(args: Record<string, unknown>, key: string): number | null {
+  const value = args[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
 function stringListArg(args: Record<string, unknown>, key: string): string[] {

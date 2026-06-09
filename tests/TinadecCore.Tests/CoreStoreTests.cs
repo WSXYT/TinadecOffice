@@ -197,7 +197,13 @@ public sealed class CoreStoreTests
         Assert.Contains(tools, tool => tool.Id == "bash_environment" && tool.Source == "code" && tool.RequiresApproval);
         Assert.Contains(tools, tool => tool.Id == "debug_session" && tool.Source == "code" && tool.RequiresApproval);
         Assert.Contains(tools, tool => tool.Id == "code_editor" && tool.Source == "code" && tool.RequiresApproval);
-        Assert.Contains(tools, tool => tool.Id == "git_worktree_manager" && tool.Source == "code" && tool.RequiresApproval);
+        Assert.Contains(tools, tool =>
+            tool.Id == "git_worktree_manager"
+            && tool.Source == "code"
+            && tool.RequiresApproval
+            && tool.Capabilities.Contains("git.diff")
+            && tool.Capabilities.Contains("git.commit")
+            && tool.Capabilities.Contains("git.push"));
         Assert.Contains(tools, tool => tool.Id == "language_runtime_probe" && tool.Capabilities.Contains("runtime.nodejs") && tool.Capabilities.Contains("runtime.java"));
         Assert.All(tools, tool => Assert.Equal("programming", tool.Domain));
     }

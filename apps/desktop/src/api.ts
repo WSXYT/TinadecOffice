@@ -761,7 +761,13 @@ export const api = {
   listTaskNodes: (sessionId: string) => request<TaskNodeDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/task-nodes`),
   listContextPacks: (sessionId: string) => request<ContextPackDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/context-packs`),
   listSupervisionFindings: (sessionId: string) => request<SupervisionFindingDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/supervision-findings`),
-  listApprovals: (sessionId?: string) => request<ApprovalDto[]>(`/api/v1/approvals?status=pending${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''}`),
+  listApprovals: (sessionId?: string, status?: string) => {
+    const search = new URLSearchParams();
+    if (status) search.set('status', status);
+    if (sessionId) search.set('session_id', sessionId);
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return request<ApprovalDto[]>(`/api/v1/approvals${suffix}`);
+  },
   createApproval: (approval: CreateApprovalInput) => request<ApprovalDto>('/api/v1/approvals', {
     method: 'POST',
     body: JSON.stringify(approval)

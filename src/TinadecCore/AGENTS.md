@@ -40,7 +40,7 @@ src/TinadecCore/
 - Tool execution must preserve approval-gated posture.
 - Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.
 - `ToolRegistryService` publishes a canonical tool catalog and registry summary: duplicate tool ids are resolved inside Core before search, manifest, policy, or execution lookup can consume them.
-- `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep push/history mutations approval-gated.
+- `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep diff/status/worktree previews read-only while commit/push/history mutations remain approval-gated.
 - Tool discovery is Core-owned. `/api/v1/tools/search` must derive provider layer, matched fields, and human-checkpoint summaries from Core descriptors and policy semantics.
 - Tool-layer readiness is Core-owned. `/api/v1/tool-layer-readiness` must derive dispatchability, future-tool state, human-checkpoint policy, and execution-agent scope resolution from Core descriptors and seeded agents.
 - Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state, provider layer, duration, checkpoint summary, and step-result evidence from Core events and descriptors.

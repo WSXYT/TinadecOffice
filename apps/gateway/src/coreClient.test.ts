@@ -180,6 +180,10 @@ test('git worktree manager reports push readiness and blocks mutations without a
   assert.ok((plan?.data.push_blockers as string[]).includes('no upstream'));
   assert.ok((plan?.data.push_blockers as string[]).includes('uncommitted changes'));
   assert.ok((plan?.data.suggested_commands as string[]).includes('git status --short --branch'));
+  const files = plan?.data.files as Array<{ path: string; status: string; is_untracked: boolean }>;
+  assert.deepEqual(files.map((file) => file.path), ['note.txt']);
+  assert.equal(files[0].status, 'untracked');
+  assert.equal(files[0].is_untracked, true);
 
   const blocked = await executeCodeTool('git_worktree_manager', {
     cwd,
@@ -260,19 +264,35 @@ test('git worktree manager executes approved commit and push with explicit confi
   assert.equal(missingPushConfirmation?.status, 'blocked');
   assert.equal(missingPushConfirmation?.data.required_confirmation, 'confirm_push');
 
+  const unsafeRemote = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: {
+      action: 'push',
+      confirm_push: true,
+      set_upstream: true,
+      remote: '--force'
+    }
+  });
+
+  assert.equal(unsafeRemote?.status, 'blocked');
+  assert.match(unsafeRemote?.summary ?? '', /remote/);
+
   const pushed = await executeCodeTool('git_worktree_manager', {
     cwd,
     approval_id: 'approval-test',
     arguments: {
       action: 'push',
       confirm_push: true,
-      set_upstream: true
+      set_upstream: true,
+      remote: 'origin'
     }
   });
 
   assert.equal(pushed?.status, 'completed');
   assert.equal(pushed?.data.pushed, true);
   assert.equal(pushed?.data.set_upstream, true);
+  assert.equal(pushed?.data.remote, 'origin');
   assert.equal(pushed?.data.ahead, 0);
   assert.equal(pushed?.data.behind, 0);
 
@@ -284,6 +304,91 @@ test('git worktree manager executes approved commit and push with explicit confi
   assert.equal(plan?.status, 'completed');
   assert.equal(plan?.data.push_ready, true);
   assert.equal(plan?.data.needs_push, false);
+});
+
+test('git worktree manager reports structured status and diff previews', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-diff-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  await runGit(cwd, ['init']);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await writeFile(path.join(cwd, 'tracked.txt'), 'one\ntwo\n', 'utf8');
+  await writeFile(path.join(cwd, 'rename-before.txt'), 'rename me\n', 'utf8');
+  await runGit(cwd, ['add', '.']);
+  await runGit(cwd, ['commit', '-m', 'initial']);
+  await runGit(cwd, ['branch', 'base']);
+  await writeFile(path.join(cwd, 'branch.txt'), 'branch range\n', 'utf8');
+  await runGit(cwd, ['add', 'branch.txt']);
+  await runGit(cwd, ['commit', '-m', 'branch change']);
+
+  await writeFile(path.join(cwd, 'tracked.txt'), 'one\ntwo\nthree\n', 'utf8');
+  await runGit(cwd, ['mv', 'rename-before.txt', 'rename-after.txt']);
+  await writeFile(path.join(cwd, 'staged.txt'), 'staged\n', 'utf8');
+  await runGit(cwd, ['add', 'staged.txt', 'rename-after.txt']);
+  await writeFile(path.join(cwd, 'untracked.txt'), 'new file\n', 'utf8');
+
+  const status = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'status' }
+  });
+
+  assert.equal(status?.status, 'completed');
+  const files = status?.data.files as Array<{ path: string; previous_path: string | null; status: string; is_renamed: boolean; is_untracked: boolean }>;
+  assert.ok(files.some((file) => file.path === 'tracked.txt' && file.status === 'modified'));
+  assert.ok(files.some((file) => file.path === 'staged.txt' && file.status === 'staged_added'));
+  assert.ok(files.some((file) => file.path === 'rename-after.txt' && file.previous_path === 'rename-before.txt' && file.is_renamed));
+  assert.ok(files.some((file) => file.path === 'untracked.txt' && file.is_untracked));
+
+  const preview = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: {
+      action: 'diff_preview',
+      base_ref: 'base',
+      max_diff_bytes: 40_000
+    }
+  });
+
+  assert.equal(preview?.status, 'completed');
+  const sections = preview?.data.sections as Array<{
+    id: string;
+    kind: string;
+    diff: string;
+    files: Array<{ path: string; previous_path: string | null; change_type: string; additions: number; binary: boolean }>;
+  }>;
+  assert.deepEqual(sections.map((section) => section.id), ['working_tree', 'staged', 'branch_range']);
+
+  const workingTree = sections.find((section) => section.id === 'working_tree');
+  assert.ok(workingTree?.files.some((file) => file.path === 'tracked.txt' && file.additions === 1));
+  assert.ok(workingTree?.files.some((file) => file.path === 'untracked.txt' && file.change_type === 'untracked'));
+  assert.match(workingTree?.diff ?? '', /new file/);
+
+  const staged = sections.find((section) => section.id === 'staged');
+  assert.ok(staged?.files.some((file) => file.path === 'staged.txt' && file.change_type === 'added'));
+  assert.ok(staged?.files.some((file) => file.path === 'rename-after.txt' && file.previous_path === 'rename-before.txt' && file.change_type === 'renamed'));
+
+  const branchRange = sections.find((section) => section.id === 'branch_range');
+  assert.ok(branchRange?.files.some((file) => file.path === 'branch.txt' && file.change_type === 'added'));
+});
+
+test('git worktree manager diff preview reports missing branch range base as a notice', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-no-upstream-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  await runGit(cwd, ['init']);
+  const preview = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'diff_preview', target: 'branch_range' }
+  });
+
+  assert.equal(preview?.status, 'completed');
+  const sections = preview?.data.sections as Array<{ id: string; notices: string[] }>;
+  assert.equal(sections[0].id, 'branch_range');
+  assert.match(sections[0].notices[0], /No upstream/);
 });
 
 async function runGit(cwd: string, args: string[]): Promise<void> {

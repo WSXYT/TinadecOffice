@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { Activity, PanelRightClose, PanelRightOpen, Terminal, GitBranch, ShieldCheck, MoreHorizontal } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import ApprovalTab from './ApprovalTab.vue'
-import DiffTab from './DiffTab.vue'
+import GitPanel from './GitPanel.vue'
 import EventsTab from './EventsTab.vue'
 import DoctorTab from './DoctorTab.vue'
 import OrchestrationTab from './OrchestrationTab.vue'
@@ -11,9 +11,9 @@ import type { ApprovalDto, EventEnvelope, DoctorReportDto, OrchestrationSnapshot
 
 const { t } = useI18n()
 
-const activeTab = ref<'approval' | 'tasks' | 'diff' | 'events' | 'doctor'>('approval')
+const activeTab = ref<'approval' | 'tasks' | 'git' | 'events' | 'doctor'>('approval')
 const collapsed = defineModel<boolean>('collapsed', { default: false })
-const panelWidth = defineModel<number>('width', { default: 320 })
+const panelWidth = defineModel<number>('width', { default: 420 })
 
 const isResizing = ref(false)
 
@@ -24,7 +24,7 @@ function startResize(event: MouseEvent) {
 
   function onMouseMove(e: MouseEvent) {
     const delta = startX - e.clientX
-    const newWidth = Math.max(200, Math.min(480, startWidth + delta))
+    const newWidth = Math.max(300, Math.min(760, startWidth + delta))
     panelWidth.value = newWidth
   }
 
@@ -58,10 +58,13 @@ const emit = defineEmits<{
   'update:shellCommand': [value: string]
 }>()
 
+const pendingApprovalCount = (approvals: ApprovalDto[] | undefined) =>
+  approvals?.filter((approval) => approval.status === 'pending').length ?? 0
+
 const toolbarItems = [
-  { key: 'approval' as const, icon: ShieldCheck, label: () => t('context.approval'), badge: (props: any) => props.approvals?.length || 0 },
+  { key: 'approval' as const, icon: ShieldCheck, label: () => t('context.approval'), badge: (props: any) => pendingApprovalCount(props.approvals) },
   { key: 'tasks' as const, icon: Terminal, label: () => 'Tasks' },
-  { key: 'diff' as const, icon: GitBranch, label: () => t('context.diff') },
+  { key: 'git' as const, icon: GitBranch, label: () => t('context.git') },
   { key: 'events' as const, icon: MoreHorizontal, label: () => t('context.events') },
   { key: 'doctor' as const, icon: Activity, label: () => 'Runtime' },
 ]
@@ -124,10 +127,12 @@ const toolbarItems = [
           @update:shell-command="emit('update:shellCommand', $event)"
         />
         <OrchestrationTab v-if="activeTab === 'tasks'" :snapshot="orchestration" :tool-executions="toolExecutions" />
-        <DiffTab
-          v-if="activeTab === 'diff'"
+        <GitPanel
+          v-if="activeTab === 'git'"
+          :approvals="approvals"
           :current-project-path="currentProjectPath"
           :selected-session-id="selectedSessionId"
+          @decide-approval="(a, d) => emit('decide-approval', a, d)"
           @approval-created="emit('approval-created', $event)"
         />
         <EventsTab v-if="activeTab === 'events'" :events="events" />

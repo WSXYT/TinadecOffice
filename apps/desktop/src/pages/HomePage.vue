@@ -36,7 +36,7 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const eventSource = ref<EventSource | null>(null)
 const rightRailCollapsed = ref(false)
-const rightRailWidth = ref(320)
+const rightRailWidth = ref(420)
 const currentMode = ref<AgentMode>('auto')
 const currentPermission = ref<PermissionLevel>('default')
 
