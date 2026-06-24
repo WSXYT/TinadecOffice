@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Tinadec.Contracts.Models;
 using TinadecModel.Providers;
+using TinadecModel.Services;
 using TinadecCore.Services;
 using TinadecCore.Storage;
 

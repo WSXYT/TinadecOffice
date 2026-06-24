@@ -3,6 +3,8 @@ using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using TinadecModel.Abstractions;
 using TinadecModel.Providers;
+using TinadecModel.Services;
+using TinadecModel.Storage;
 using TinadecCore.Abstractions;
 using TinadecCore.Services;
 using TinadecCore.Storage;

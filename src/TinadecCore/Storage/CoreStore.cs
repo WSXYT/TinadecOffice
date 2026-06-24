@@ -3,13 +3,14 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using TinadecCore.Services;
 using Tinadec.Contracts.Events;
+using TinadecModel.Abstractions;
 using TinadecModel.Providers;
 using TinadecModel.Storage;
 using Tinadec.Contracts.Models;
 
 namespace TinadecCore.Storage;
 
-public sealed class CoreStore
+public sealed class CoreStore : IModelStore
 {
     private readonly object _gate = new();
     private readonly string _connectionString;

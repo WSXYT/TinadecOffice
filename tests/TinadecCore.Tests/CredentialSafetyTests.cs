@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Tinadec.Contracts.Events;
 using Tinadec.Contracts.Models;
 using TinadecModel.Abstractions;
+using TinadecModel.Services;
 using TinadecCore.Abstractions;
 using TinadecCore.Services;
 
