@@ -57,6 +57,47 @@ interface ThemeChangedData {
   accentColor: string;
 }
 
+interface ShellProfile {
+  id: string;
+  label: string;
+  shell: string;
+  args: string[];
+}
+
+interface TerminalCreateOptions {
+  id?: string;
+  shell?: string;
+  args?: string[];
+  cwd?: string;
+  cols?: number;
+  rows?: number;
+  title?: string;
+}
+
+interface TerminalCreateResult {
+  id: string;
+  shell: string;
+  title: string;
+}
+
+interface TerminalInfo {
+  id: string;
+  shell: string;
+  title: string;
+  exited: boolean;
+}
+
+interface TerminalApi {
+  create: (options?: TerminalCreateOptions) => Promise<TerminalCreateResult>;
+  write: (id: string, data: string) => void;
+  resize: (id: string, cols: number, rows: number) => void;
+  destroy: (id: string) => void;
+  getShells: () => Promise<ShellProfile[]>;
+  list: () => Promise<TerminalInfo[]>;
+  onData: (id: string, callback: (data: string) => void) => () => void;
+  onExit: (id: string, callback: (exitCode: number, signal?: number) => void) => () => void;
+}
+
 declare global {
   interface Window {
     tinadec: {
@@ -66,6 +107,8 @@ declare global {
       maximizeWindow: () => void;
       closeWindow: () => void;
       openDebugStudio: () => Promise<boolean>;
+      /** Terminal management API */
+      terminal: TerminalApi;
       /** Detach a tab into a new floating BrowserWindow */
       detachPanel: (tabId: string, type: string, title: string, state: Record<string, unknown>) => Promise<DetachResult | null>;
       /** Reattach a panel window back to the main window */

@@ -108,6 +108,30 @@ test('Code tool approval gate trusts only approved Core approval state', () => {
   ]);
   assert.equal(approved, null);
 
+  const cwdMismatch = codeToolApprovalBlockFor('git_worktree_manager', {
+    ...request,
+    cwd: 'D:/other-repo',
+    arguments: { action: 'push' }
+  }, [
+    { id: 'appr_test', session_id: 'sess_test', kind: 'git', status: 'approved', cwd: 'D:/repo', command: 'git push' }
+  ]);
+  assert.equal(cwdMismatch?.status, 'blocked');
+  assert.equal(cwdMismatch?.data.request_cwd, 'D:/other-repo');
+  assert.equal(cwdMismatch?.data.approval_cwd, 'D:/repo');
+  assert.ok((cwdMismatch?.evidence ?? []).includes('approval:context-mismatch'));
+
+  const actionMismatch = codeToolApprovalBlockFor('git_worktree_manager', {
+    ...request,
+    cwd: 'D:/repo',
+    arguments: { action: 'pull' }
+  }, [
+    { id: 'appr_test', session_id: 'sess_test', kind: 'git', status: 'approved', cwd: 'D:/repo', command: 'git push' }
+  ]);
+  assert.equal(actionMismatch?.status, 'blocked');
+  assert.equal(actionMismatch?.data.requested_action, 'pull');
+  assert.equal(actionMismatch?.data.approval_command, 'git push');
+  assert.ok((actionMismatch?.evidence ?? []).includes('approval:context-mismatch'));
+
   const readOnly = codeToolApprovalBlockFor('project_templates', request, []);
   assert.equal(readOnly, null);
 
@@ -165,7 +189,7 @@ test('git worktree manager reports push readiness and blocks mutations without a
     await rm(cwd, { recursive: true, force: true });
   });
 
-  await runGit(cwd, ['init']);
+  await initGitRepo(cwd);
   await writeFile(path.join(cwd, 'note.txt'), 'hello\n', 'utf8');
 
   const plan = await executeCodeTool('git_worktree_manager', {
@@ -200,7 +224,7 @@ test('git worktree manager stages and unstages approved path selections', async 
     await rm(cwd, { recursive: true, force: true });
   });
 
-  await runGit(cwd, ['init']);
+  await initGitRepo(cwd);
   await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
   await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
   await writeFile(path.join(cwd, 'tracked.txt'), 'one\n', 'utf8');
@@ -262,7 +286,7 @@ test('git worktree manager executes approved commit and push with explicit confi
     await rm(remote, { recursive: true, force: true });
   });
 
-  await runGit(cwd, ['init']);
+  await initGitRepo(cwd);
   await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
   await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
   await runGit(remote, ['init', '--bare']);
@@ -372,7 +396,7 @@ test('git worktree manager reports structured status and diff previews', async (
     await rm(cwd, { recursive: true, force: true });
   });
 
-  await runGit(cwd, ['init']);
+  await initGitRepo(cwd);
   await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
   await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
   await writeFile(path.join(cwd, 'tracked.txt'), 'one\ntwo\n', 'utf8');
@@ -439,7 +463,7 @@ test('git worktree manager diff preview reports missing branch range base as a n
     await rm(cwd, { recursive: true, force: true });
   });
 
-  await runGit(cwd, ['init']);
+  await initGitRepo(cwd);
   const preview = await executeCodeTool('git_worktree_manager', {
     cwd,
     arguments: { action: 'diff_preview', target: 'branch_range' }
@@ -450,6 +474,184 @@ test('git worktree manager diff preview reports missing branch range base as a n
   assert.equal(sections[0].id, 'branch_range');
   assert.match(sections[0].notices[0], /No upstream/);
 });
+
+test('git worktree manager lists branches and tracks current branch', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-branches-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  await initGitRepo(cwd);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await writeFile(path.join(cwd, 'file.txt'), 'hello\n', 'utf8');
+  await runGit(cwd, ['add', 'file.txt']);
+  await runGit(cwd, ['commit', '-m', 'initial']);
+  await runGit(cwd, ['checkout', '-b', 'feature/a']);
+  await runGit(cwd, ['checkout', '-b', 'feature/b']);
+
+  const list = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'branch_list', all: true }
+  });
+
+  assert.equal(list?.status, 'completed');
+  const branches = list?.data.branches as Array<{ name: string; is_current: boolean; is_remote: boolean; commit_hash: string }>;
+  assert.ok(branches.some((b) => b.name === 'main' && !b.is_current));
+  assert.ok(branches.some((b) => b.name === 'feature/a' && !b.is_current));
+  assert.ok(branches.some((b) => b.name === 'feature/b' && b.is_current));
+  assert.ok(branches.every((b) => typeof b.commit_hash === 'string' && b.commit_hash.length > 0));
+});
+
+test('git worktree manager checks out and creates branches with approval', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-checkout-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  await initGitRepo(cwd);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await writeFile(path.join(cwd, 'file.txt'), 'hello\n', 'utf8');
+  await runGit(cwd, ['add', 'file.txt']);
+  await runGit(cwd, ['commit', '-m', 'initial']);
+  await runGit(cwd, ['checkout', '-b', 'existing-branch']);
+  await runGit(cwd, ['checkout', 'main']);
+
+  const missingCheckoutConfirmation = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'checkout', branch: 'existing-branch' }
+  });
+  assert.equal(missingCheckoutConfirmation?.status, 'blocked');
+  assert.equal(missingCheckoutConfirmation?.data.required_confirmation, 'confirm_checkout');
+
+  const checkedOut = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'checkout', branch: 'existing-branch', confirm_checkout: true }
+  });
+  assert.equal(checkedOut?.status, 'completed');
+  assert.equal(checkedOut?.data.branch, 'existing-branch');
+  assert.equal(checkedOut?.data.checked_out, true);
+
+  const createExisting = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'create_branch', branch: 'existing-branch', confirm_create_branch: true }
+  });
+  assert.equal(createExisting?.status, 'blocked');
+  assert.match(createExisting?.summary ?? '', /already exists/);
+
+  const created = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'create_branch', branch: 'new-branch', confirm_create_branch: true }
+  });
+  assert.equal(created?.status, 'completed');
+  assert.equal(created?.data.branch, 'new-branch');
+  assert.equal(created?.data.created, true);
+
+  const current = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'status' }
+  });
+  assert.equal(current?.data.branch, 'new-branch');
+});
+
+test('git worktree manager commits only staged files when commit_staged_only is true', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-staged-only-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  await initGitRepo(cwd);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await writeFile(path.join(cwd, 'staged.txt'), 'staged\n', 'utf8');
+  await writeFile(path.join(cwd, 'unstaged.txt'), 'unstaged\n', 'utf8');
+  await runGit(cwd, ['add', 'staged.txt']);
+
+  const committed = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: {
+      action: 'commit',
+      confirm_commit: true,
+      commit_staged_only: true,
+      message: 'commit staged only'
+    }
+  });
+
+  assert.equal(committed?.status, 'completed');
+  assert.equal(committed?.data.commit_staged_only, true);
+  const stagedFiles = committed?.data.staged_files as string[];
+  assert.ok(stagedFiles.includes('staged.txt'));
+  assert.ok(!stagedFiles.includes('unstaged.txt'));
+
+  const status = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'status' }
+  });
+  const files = status?.data.files as Array<{ path: string; is_untracked: boolean }>;
+  assert.ok(files.some((f) => f.path === 'unstaged.txt'));
+  assert.ok(!files.some((f) => f.path === 'staged.txt'));
+});
+
+test('git worktree manager fetches from a remote and reports tracking info', async (t) => {
+  const remote = await mkdtemp(path.join(tmpdir(), 'tinadec-git-remote-'));
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-fetch-'));
+  t.after(async () => {
+    await rm(cwd, { recursive: true, force: true });
+    await rm(remote, { recursive: true, force: true });
+  });
+
+  await runGit(remote, ['init', '--bare']);
+  await initGitRepo(cwd);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await runGit(cwd, ['remote', 'add', 'origin', remote]);
+  await writeFile(path.join(cwd, 'file.txt'), 'hello\n', 'utf8');
+  await runGit(cwd, ['add', 'file.txt']);
+  await runGit(cwd, ['commit', '-m', 'initial']);
+  await runGit(cwd, ['push', '-u', 'origin', 'main']);
+
+  await runGit(cwd, ['checkout', '-b', 'local-only']);
+
+  const missingFetchConfirmation = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'fetch' }
+  });
+  assert.equal(missingFetchConfirmation?.status, 'blocked');
+  assert.equal(missingFetchConfirmation?.data.required_confirmation, 'confirm_fetch');
+
+  const fetched = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'fetch', confirm_fetch: true }
+  });
+  assert.equal(fetched?.status, 'completed');
+  assert.equal(fetched?.data.fetched, true);
+  assert.ok(Array.isArray(fetched?.data.branch_tracking_info));
+
+  const list = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    arguments: { action: 'branch_list', all: true }
+  });
+  const branches = list?.data.branches as Array<{ name: string; is_remote: boolean }>;
+  assert.ok(branches.some((b) => b.name === 'remotes/origin/main' && b.is_remote));
+});
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await runGit(cwd, ['init']);
+  // Normalize default branch to 'main' regardless of git version/local config.
+  try {
+    await runGit(cwd, ['checkout', '-b', 'main']);
+  } catch {
+    // Already on 'main' on newer git; ignore.
+  }
+}
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {

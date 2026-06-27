@@ -6,14 +6,14 @@ Electron + Vue 3 desktop app. Vite renders the UI; Electron provides the window/
 ## STRUCTURE
 ```
 apps/desktop/
-├── electron/          # Electron main, preload, Debug Studio window, panel window manager
+├── electron/          # Electron main, preload, Debug Studio window, panel window manager, terminal manager
 ├── scripts/dev.mjs    # Vite then Electron launcher
 └── src/
     ├── pages/         # hash-router route pages
-    ├── components/    # feature components
+    ├── components/    # feature components (incl. TerminalPanel, TerminalView)
     ├── components/ui/ # shadcn-style Vue primitives + barrel
     ├── debug/         # self-contained Agent Debug Studio feature
-    ├── composables/   # shared app composables
+    ├── composables/   # shared app composables (incl. useTerminal)
     ├── locales/       # en / zh-CN i18n bundles
     └── api.ts         # renderer DTO mirror of Core/Gateway shapes
 ```
@@ -34,6 +34,7 @@ apps/desktop/
 | UI primitives | `src/components/ui/index.ts`, `src/lib/utils.ts` | `Ui*` barrel exports; `cn()` uses clsx + tailwind-merge. |
 | Theme/i18n | `src/composables/useTheme.ts`, `src/i18n.ts`, `src/locales/*` | Persisted theme/accent/locale behavior. |
 | Detached panel windows | `electron/panelWindow.cjs`, `src/pages/DetachedPanelPage.vue`, `src/components/ContextPanel.vue`, `src/composables/usePanelTabs.ts` | Electron multi-window management: BrowserWindow creation, cursor-polling drag-to-detach (Chrome-style tab tearing), disk-based layout persistence, reattach/focus, and cross-window theme broadcast. Main window is tagged with `_isTinadecMain` so `getMainWindow()` distinguishes it from Debug Studio. Panel layout persisted to `~/.tinadec-panel-layout.json` on move/resize/quit and restored on launch. |
+| Integrated terminal | `electron/terminalManager.cjs`, `src/composables/useTerminal.ts`, `src/components/TerminalPanel.vue`, `src/components/TerminalView.vue`, `src/components/ContextPanel.vue`, `src/components/PanelHome.vue` | Full PTY terminal via `node-pty` (with `child_process.spawn` fallback). Multi-instance tabs, shell profile selector (PowerShell/CMD/Git Bash/WSL/zsh/bash), xterm.js rendering with theme adaptation from CSS variables, keyboard shortcuts (Ctrl+Shift+T new, Ctrl+W close, Ctrl+Tab switch), auto-fit via ResizeObserver, and detachable panel windows. Terminal panel type is `'terminal'` in `usePanelTabs`; multiple instances allowed. Native module rebuild: `npm run rebuild:native` (requires Python + C++ build tools). |
 
 ## CONVENTIONS
 - Use `@/*` for imports from `src/*` when it improves clarity.
@@ -47,6 +48,9 @@ apps/desktop/
 - Tool search UI must consume Core/Gateway `/api/v1/tools/search` results. Do not invent provider-layer, matched-field, or human-checkpoint semantics in the renderer.
 - Tool execution UI must consume Core/Gateway `/api/v1/sessions/{sessionId}/tool-executions` results. Do not reconstruct audit timelines, provider layers, durations, or checkpoint summaries from local event arrays in Desktop.
 - Dev server is pinned: `127.0.0.1:5173`, `strictPort: true`.
+- Terminal backend uses `node-pty` when available (requires `npm run rebuild:native` with Python + C++ build tools); falls back to `child_process.spawn` automatically. The fallback mode supports basic command execution but not interactive programs (vim, less) or terminal resize.
+- Terminal IPC channels: `terminal:create`, `terminal:write`, `terminal:resize`, `terminal:destroy`, `terminal:get-shells`, `terminal:list`. Data/exit events use per-terminal channels: `terminal:data:{id}`, `terminal:exit:{id}`.
+- Terminal state is managed by `useTerminal` composable (module-level singleton). Terminal processes are destroyed on component unmount (tab close, detach, or page navigation) to prevent orphaned PTY processes.
 
 ## ANTI-PATTERNS
 - Do not call Core directly from renderer; call Gateway (`48730`).
@@ -59,4 +63,5 @@ apps/desktop/
 npm run dev -w @tinadec/desktop
 npm run build -w @tinadec/desktop
 npm run test -w @tinadec/desktop
+npm run rebuild:native -w @tinadec/desktop  # rebuild node-pty for Electron (requires Python)
 ```

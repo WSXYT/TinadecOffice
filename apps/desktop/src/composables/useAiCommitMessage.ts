@@ -267,6 +267,26 @@ export function useAiCommitMessage(
       .map((f) => `${statusToLabel(f.status ?? f.unstaged_status)} ${f.path}`)
       .join('\n')
 
+    // Build a concise diff summary for AI context (capped to avoid huge prompts)
+    const MAX_DIFF_CHARS = 6000
+    const diffParts: string[] = []
+    let diffChars = 0
+    for (const section of sections) {
+      if (!section.diff) continue
+      const piece = `--- ${section.title} ---\n${section.diff}`
+      if (diffChars + piece.length > MAX_DIFF_CHARS) {
+        const remaining = MAX_DIFF_CHARS - diffChars
+        if (remaining > 100) {
+          diffParts.push(piece.slice(0, remaining))
+          diffChars = MAX_DIFF_CHARS
+        }
+        break
+      }
+      diffParts.push(piece)
+      diffChars += piece.length
+    }
+    const diffSummary = diffParts.join('\n')
+
     const prompt = [
       'You are a commit message generator. Analyze the following Git changes and generate a conventional commit message.',
       '',
@@ -275,6 +295,9 @@ export function useAiCommitMessage(
       '',
       'Changed files:',
       fileList,
+      '',
+      'Diff summary:',
+      diffSummary || 'No diff available.',
       '',
       'Respond with ONLY a conventional commit message in this format:',
       'type(scope): subject',

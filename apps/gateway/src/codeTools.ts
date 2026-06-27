@@ -39,6 +39,8 @@ export interface ApprovalSnapshot {
   session_id?: string | null;
   kind?: string | null;
   status?: string | null;
+  command?: string | null;
+  cwd?: string | null;
 }
 
 interface CodeToolSpec {
@@ -359,7 +361,51 @@ export function codeToolApprovalBlockFor(
     }, ['approval:wrong-kind', 'state_owner: core']);
   }
 
+  if (approval.cwd && request.cwd && normalizePath(approval.cwd) !== normalizePath(request.cwd)) {
+    return resultFor(spec, 'blocked', 'Core approval was granted for a different working directory.', {
+      approval_id: request.approval_id,
+      approval_cwd: approval.cwd,
+      request_cwd: request.cwd,
+      session_id: request.session_id ?? null,
+      required_approval: true
+    }, ['approval:context-mismatch', 'state_owner: core']);
+  }
+
+  if (approval.command && request.arguments) {
+    const requestedAction = stringArg(request.arguments, 'action') ?? '';
+    const commandAction = extractActionFromApprovalCommand(approval.command);
+    if (commandAction && requestedAction !== commandAction) {
+      return resultFor(spec, 'blocked', 'Core approval command does not match the requested Git action.', {
+        approval_id: request.approval_id,
+        approval_command: approval.command,
+        requested_action: requestedAction,
+        session_id: request.session_id ?? null,
+        required_approval: true
+      }, ['approval:context-mismatch', 'state_owner: core']);
+    }
+  }
+
   return null;
+}
+
+function normalizePath(p: string): string {
+  return path.resolve(p).toLowerCase();
+}
+
+function extractActionFromApprovalCommand(command: string): string | null {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized.startsWith('git ')) {
+    return null;
+  }
+  const parts = normalized.slice('git '.length).split(/\s+/);
+  const base = parts[0] ?? '';
+  if (base === 'checkout' && parts.includes('-b')) {
+    return 'create_branch';
+  }
+  if (base === 'checkout') {
+    return 'checkout';
+  }
+  return base || null;
 }
 
 export function codeToolApprovalUnavailableBlock(toolId: string, request: CodeToolExecuteRequest): CodeToolExecuteResult | null {
@@ -642,7 +688,11 @@ async function executeGitWorktreeManager(
   args: Record<string, unknown>
 ): Promise<CodeToolExecuteResult> {
   const action = stringArg(args, 'action') ?? 'status';
-  const mutatingActions = new Set(['stage', 'unstage', 'commit', 'push', 'merge', 'rebase', 'create_branch', 'create_worktree', 'checkout']);
+  const mutatingActions = new Set([
+    'stage', 'unstage', 'commit', 'push', 'pull', 'merge', 'rebase',
+    'create_branch', 'create_worktree', 'checkout', 'fetch', 'resolve_conflict',
+    'delete_branch', 'rename_branch'
+  ]);
   if (mutatingActions.has(action) && !request.approval_id) {
     return resultFor(spec, 'blocked', `${action} requires a Core-approved Git tool invocation.`, {
       cwd: request.cwd ?? null,
@@ -670,6 +720,46 @@ async function executeGitWorktreeManager(
   }
   if (action === 'push') {
     return executeGitPush(spec, request, args, gitRoot);
+  }
+
+  if (action === 'pull') {
+    return executeGitPull(spec, request, args, gitRoot);
+  }
+
+  if (action === 'checkout') {
+    return executeGitCheckout(spec, request, args, gitRoot);
+  }
+
+  if (action === 'create_branch') {
+    return executeGitCreateBranch(spec, request, args, gitRoot);
+  }
+
+  if (action === 'fetch') {
+    return executeGitFetch(spec, request, args, gitRoot);
+  }
+
+  if (action === 'branch_list') {
+    return executeGitBranchList(spec, request, args, gitRoot);
+  }
+
+  if (action === 'merge') {
+    return executeGitMerge(spec, request, args, gitRoot);
+  }
+
+  if (action === 'rebase') {
+    return executeGitRebase(spec, request, args, gitRoot);
+  }
+
+  if (action === 'resolve_conflict') {
+    return executeGitResolveConflict(spec, request, args, gitRoot);
+  }
+
+  if (action === 'delete_branch') {
+    return executeGitDeleteBranch(spec, request, args, gitRoot);
+  }
+
+  if (action === 'rename_branch') {
+    return executeGitRenameBranch(spec, request, args, gitRoot);
   }
 
   if (mutatingActions.has(action)) {
@@ -844,9 +934,11 @@ async function executeGitCommit(
   }
 
   const includeAll = booleanArg(args, 'include_all');
+  const commitStagedOnly = booleanArg(args, 'commit_staged_only');
   const rawPaths = stringListArg(args, 'paths');
-  if (!includeAll && rawPaths.length === 0) {
-    return resultFor(spec, 'blocked', 'commit requires paths or include_all: true.', {
+
+  if (!includeAll && !commitStagedOnly && rawPaths.length === 0) {
+    return resultFor(spec, 'blocked', 'commit requires paths, include_all: true, or commit_staged_only: true.', {
       cwd: request.cwd,
       git_root: gitRoot,
       action: 'commit',
@@ -856,26 +948,28 @@ async function executeGitCommit(
     }, ['git:commit', 'approval:supplied', 'paths:required']);
   }
 
-  const pathspecs: string[] = [];
-  if (!includeAll) {
-    for (const rawPath of rawPaths) {
-      const normalized = normalizeGitPathspec(gitRoot, rawPath);
-      if (!normalized.ok) {
-        return resultFor(spec, 'blocked', normalized.message, {
-          cwd: request.cwd,
-          git_root: gitRoot,
-          action: 'commit',
-          approval_id: request.approval_id,
-          argument_keys: Object.keys(args).sort()
-        }, ['git:commit', 'approval:supplied', 'path:blocked']);
+  if (!commitStagedOnly) {
+    const pathspecs: string[] = [];
+    if (!includeAll) {
+      for (const rawPath of rawPaths) {
+        const normalized = normalizeGitPathspec(gitRoot, rawPath);
+        if (!normalized.ok) {
+          return resultFor(spec, 'blocked', normalized.message, {
+            cwd: request.cwd,
+            git_root: gitRoot,
+            action: 'commit',
+            approval_id: request.approval_id,
+            argument_keys: Object.keys(args).sort()
+          }, ['git:commit', 'approval:supplied', 'path:blocked']);
+        }
+        pathspecs.push(normalized.pathspec);
       }
-      pathspecs.push(normalized.pathspec);
     }
-  }
 
-  const add = await git(gitRoot, includeAll ? ['add', '-A'] : ['add', '--', ...pathspecs]);
-  if (add.code !== 0) {
-    return gitCommandFailedResult(spec, 'git add failed.', args, gitRoot, 'commit', add, ['git:commit', 'git:add']);
+    const add = await git(gitRoot, includeAll ? ['add', '-A'] : ['add', '--', ...pathspecs]);
+    if (add.code !== 0) {
+      return gitCommandFailedResult(spec, 'git add failed.', args, gitRoot, 'commit', add, ['git:commit', 'git:add']);
+    }
   }
 
   const staged = await git(gitRoot, ['diff', '--cached', '--name-only']);
@@ -908,12 +1002,18 @@ async function executeGitCommit(
   const commitHash = head.code === 0 ? head.stdout.trim() : null;
   const statusSummary = status.code === 0 ? parseGitStatus(status.stdout) : null;
 
+  const evidenceTags = ['git:commit', 'approval:supplied', 'confirmation:supplied'];
+  if (!commitStagedOnly) {
+    evidenceTags.push('git:add');
+  }
+
   return resultFor(spec, 'completed', commitHash ? `Created commit ${commitHash.slice(0, 12)}.` : 'Created commit.', {
     cwd: request.cwd,
     git_root: gitRoot,
     action: 'commit',
     approval_id: request.approval_id,
     include_all: includeAll,
+    commit_staged_only: commitStagedOnly,
     paths: rawPaths,
     staged_files: stagedFiles,
     commit_hash: commitHash,
@@ -923,7 +1023,7 @@ async function executeGitCommit(
     ahead: statusSummary?.ahead ?? null,
     behind: statusSummary?.behind ?? null,
     has_uncommitted_changes: statusSummary?.hasUncommittedChanges ?? null
-  }, ['git:commit', 'approval:supplied', 'confirmation:supplied', 'git:add']);
+  }, evidenceTags);
 }
 
 async function executeGitPush(
@@ -1005,7 +1105,7 @@ async function executeGitPush(
   const pushArgs = !statusSummary.upstream && setUpstream
     ? ['push', '-u', remote, statusSummary.branch]
     : ['push'];
-  const push = await git(gitRoot, pushArgs);
+  const push = await git(gitRoot, pushArgs, { timeoutMs: 60_000 });
   if (push.code !== 0) {
     return gitCommandFailedResult(spec, 'git push failed.', args, gitRoot, 'push', push, ['git:push']);
   }
@@ -1028,6 +1128,710 @@ async function executeGitPush(
     remote,
     push_output: [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join('\n')
   }, ['git:push', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitPull(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_pull')) {
+    return resultFor(spec, 'blocked', 'pull requires confirm_pull: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'pull',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_pull'
+    }, ['git:pull', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const status = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  if (status.code !== 0) {
+    return gitCommandFailedResult(spec, 'Unable to inspect Git status before pull.', args, gitRoot, 'pull', status, ['git:pull', 'git:status']);
+  }
+
+  const statusSummary = parseGitStatus(status.stdout);
+  const remote = stringArg(args, 'remote') ?? 'origin';
+  const branch = stringArg(args, 'branch') ?? statusSummary.branch;
+  const rebase = booleanArg(args, 'rebase');
+  const ffOnly = booleanArg(args, 'ff_only');
+
+  if (!isSafeGitRefName(remote)) {
+    return resultFor(spec, 'blocked', 'pull remote must be a configured remote name without whitespace or option prefixes.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'pull',
+      approval_id: request.approval_id,
+      remote
+    }, ['git:pull', 'approval:supplied', 'remote:blocked']);
+  }
+
+  if (!isSafeGitRefName(branch)) {
+    return resultFor(spec, 'blocked', 'pull branch name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'pull',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:pull', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const pullArgs = ['pull'];
+  if (rebase) pullArgs.push('--rebase');
+  if (ffOnly) pullArgs.push('--ff-only');
+  pullArgs.push(remote, branch);
+
+  const pull = await git(gitRoot, pullArgs, { timeoutMs: 60_000 });
+  if (pull.code !== 0) {
+    const conflictDetected = pull.stdout.includes('CONFLICT') || pull.stderr.includes('CONFLICT') || pull.stdout.includes('merge failed');
+    const tags = conflictDetected ? ['git:pull', 'git:conflict'] : ['git:pull'];
+    return gitCommandFailedResult(spec, 'git pull failed.', args, gitRoot, 'pull', pull, tags);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : statusSummary;
+
+  return resultFor(spec, 'completed', `Pulled ${branch} from ${remote}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'pull',
+    approval_id: request.approval_id,
+    branch: finalSummary.branch,
+    upstream: finalSummary.upstream,
+    ahead: finalSummary.ahead,
+    behind: finalSummary.behind,
+    has_uncommitted_changes: finalSummary.hasUncommittedChanges,
+    remote,
+    pulled: true,
+    pull_output: [pull.stdout.trim(), pull.stderr.trim()].filter(Boolean).join('\n')
+  }, ['git:pull', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitCheckout(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_checkout')) {
+    return resultFor(spec, 'blocked', 'checkout requires confirm_checkout: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'checkout',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_checkout'
+    }, ['git:checkout', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const branch = stringArg(args, 'branch');
+  if (!branch) {
+    return resultFor(spec, 'blocked', 'checkout requires a branch name.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'checkout',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'branch'
+    }, ['git:checkout', 'approval:supplied', 'branch:required']);
+  }
+
+  if (!isSafeGitRefName(branch)) {
+    return resultFor(spec, 'blocked', 'checkout branch name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'checkout',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:checkout', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const checkout = await git(gitRoot, ['checkout', branch]);
+  if (checkout.code !== 0) {
+    return gitCommandFailedResult(spec, 'git checkout failed.', args, gitRoot, 'checkout', checkout, ['git:checkout']);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : null;
+
+  return resultFor(spec, 'completed', `Checked out ${branch}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'checkout',
+    approval_id: request.approval_id,
+    branch: finalSummary?.branch ?? branch,
+    upstream: finalSummary?.upstream ?? null,
+    ahead: finalSummary?.ahead ?? null,
+    behind: finalSummary?.behind ?? null,
+    has_uncommitted_changes: finalSummary?.hasUncommittedChanges ?? null,
+    checked_out: true,
+    checkout_output: checkout.stdout.trim()
+  }, ['git:checkout', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitCreateBranch(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_create_branch')) {
+    return resultFor(spec, 'blocked', 'create_branch requires confirm_create_branch: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'create_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_create_branch'
+    }, ['git:create_branch', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const branch = stringArg(args, 'branch');
+  if (!branch) {
+    return resultFor(spec, 'blocked', 'create_branch requires a branch name.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'create_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'branch'
+    }, ['git:create_branch', 'approval:supplied', 'branch:required']);
+  }
+
+  if (!isSafeGitRefName(branch)) {
+    return resultFor(spec, 'blocked', 'create_branch branch name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'create_branch',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:create_branch', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const existsResult = await git(gitRoot, ['rev-parse', '--verify', branch]);
+  if (existsResult.code === 0) {
+    return resultFor(spec, 'blocked', `Branch '${branch}' already exists.`, {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'create_branch',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:create_branch', 'approval:supplied', 'branch:exists']);
+  }
+
+  const create = await git(gitRoot, ['checkout', '-b', branch]);
+  if (create.code !== 0) {
+    return gitCommandFailedResult(spec, 'git checkout -b failed.', args, gitRoot, 'create_branch', create, ['git:create_branch']);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : null;
+
+  return resultFor(spec, 'completed', `Created and checked out ${branch}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'create_branch',
+    approval_id: request.approval_id,
+    branch: finalSummary?.branch ?? branch,
+    upstream: finalSummary?.upstream ?? null,
+    ahead: finalSummary?.ahead ?? null,
+    behind: finalSummary?.behind ?? null,
+    has_uncommitted_changes: finalSummary?.hasUncommittedChanges ?? null,
+    created: true,
+    create_output: create.stdout.trim()
+  }, ['git:create_branch', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitFetch(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_fetch')) {
+    return resultFor(spec, 'blocked', 'fetch requires confirm_fetch: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'fetch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_fetch'
+    }, ['git:fetch', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const remote = stringArg(args, 'remote') ?? '--all';
+  const prune = booleanArg(args, 'prune', true);
+
+  if (remote !== '--all' && !isSafeGitRefName(remote)) {
+    return resultFor(spec, 'blocked', 'fetch remote must be a configured remote name without whitespace or option prefixes.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'fetch',
+      approval_id: request.approval_id,
+      remote
+    }, ['git:fetch', 'approval:supplied', 'remote:blocked']);
+  }
+
+  const fetchArgs = ['fetch'];
+  if (prune) fetchArgs.push('--prune');
+  fetchArgs.push(remote);
+
+  const fetchResult = await git(gitRoot, fetchArgs, { timeoutMs: 60_000 });
+  if (fetchResult.code !== 0) {
+    return gitCommandFailedResult(spec, 'git fetch failed.', args, gitRoot, 'fetch', fetchResult, ['git:fetch']);
+  }
+
+  const [status, branches] = await Promise.all([
+    git(gitRoot, ['status', '--porcelain=v1', '--branch']),
+    git(gitRoot, ['branch', '-a', '-vv', '--format=%(refname:short)\t%(upstream:short)\t%(upstream:track)'])
+  ]);
+  const statusSummary = status.code === 0 ? parseGitStatus(status.stdout) : null;
+
+  return resultFor(spec, 'completed', `Fetched from ${remote}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'fetch',
+    approval_id: request.approval_id,
+    branch: statusSummary?.branch ?? null,
+    upstream: statusSummary?.upstream ?? null,
+    ahead: statusSummary?.ahead ?? null,
+    behind: statusSummary?.behind ?? null,
+    fetched: true,
+    remote,
+    fetch_output: [fetchResult.stdout.trim(), fetchResult.stderr.trim()].filter(Boolean).join('\n'),
+    branch_tracking_info: parseBranchTrackingInfo(branches.stdout)
+  }, ['git:fetch', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitBranchList(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  const all = booleanArg(args, 'all', true);
+  // Use full %(refname) so remote branches can be reliably detected and named
+  // with the canonical `remotes/<remote>/<branch>` form.
+  const format = '%(refname)\t%(objectname:short)\t%(subject)\t%(committerdate:iso8601)\t%(upstream:short)\t%(upstream:track)';
+  const gitArgs = ['branch', '--format', format];
+  if (all) gitArgs.push('-a');
+
+  const list = await git(gitRoot, gitArgs);
+  if (list.code !== 0) {
+    return gitCommandFailedResult(spec, 'git branch failed.', args, gitRoot, 'branch_list', list, ['git:branch_list']);
+  }
+
+  const current = await git(gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const currentBranch = current.code === 0 ? current.stdout.trim() : null;
+
+  const branches = parseGitBranchList(list.stdout, currentBranch);
+
+  return resultFor(spec, 'completed', `Listed ${branches.length} branch${branches.length === 1 ? '' : 'es'}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'branch_list',
+    current_branch: currentBranch,
+    branches
+  }, ['git:branch_list']);
+}
+
+async function executeGitMerge(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_merge')) {
+    return resultFor(spec, 'blocked', 'merge requires confirm_merge: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'merge',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_merge'
+    }, ['git:merge', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const branch = stringArg(args, 'branch');
+  if (!branch) {
+    return resultFor(spec, 'blocked', 'merge requires a branch name.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'merge',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'branch'
+    }, ['git:merge', 'approval:supplied', 'branch:required']);
+  }
+
+  if (!isSafeGitRefName(branch)) {
+    return resultFor(spec, 'blocked', 'merge branch name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'merge',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:merge', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const strategy = stringArg(args, 'strategy');
+  const mergeArgs = ['merge'];
+  if (strategy === 'no_ff') mergeArgs.push('--no-ff');
+  if (strategy === 'ff_only') mergeArgs.push('--ff-only');
+  if (strategy === 'squash') mergeArgs.push('--squash');
+  mergeArgs.push(branch);
+
+  const merge = await git(gitRoot, mergeArgs, { timeoutMs: 60_000 });
+  if (merge.code !== 0) {
+    const status = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+    const statusSummary = status.code === 0 ? parseGitStatus(status.stdout) : null;
+    const conflictedFiles = statusSummary?.files.filter((f) => f.is_conflicted) ?? [];
+    const hasConflicts = conflictedFiles.length > 0;
+
+    if (hasConflicts) {
+      return resultFor(spec, 'failed', `Merge conflict when merging ${branch}. Resolve conflicts and commit.`, {
+        cwd: request.cwd,
+        git_root: gitRoot,
+        action: 'merge',
+        approval_id: request.approval_id,
+        branch,
+        strategy,
+        conflict: true,
+        conflicted_files: conflictedFiles.map((f) => f.path),
+        exit_code: merge.code,
+        stdout: merge.stdout.trim(),
+        stderr: merge.stderr.trim()
+      }, ['git:merge', 'approval:supplied', 'confirmation:supplied', 'git:conflict']);
+    }
+
+    return gitCommandFailedResult(spec, 'git merge failed.', args, gitRoot, 'merge', merge, ['git:merge']);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : null;
+
+  return resultFor(spec, 'completed', `Merged ${branch}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'merge',
+    approval_id: request.approval_id,
+    branch,
+    strategy,
+    conflict: false,
+    branch_state: finalSummary?.branch ?? null,
+    has_uncommitted_changes: finalSummary?.hasUncommittedChanges ?? null
+  }, ['git:merge', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitRebase(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_rebase')) {
+    return resultFor(spec, 'blocked', 'rebase requires confirm_rebase: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'rebase',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_rebase'
+    }, ['git:rebase', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const operation = stringArg(args, 'operation') ?? 'start';
+  if (!['start', 'continue', 'abort', 'skip'].includes(operation)) {
+    return failedResult(spec, `Unsupported rebase operation '${operation}'.`, args, ['git:rebase', 'rebase:unsupported-operation']);
+  }
+
+  const rebaseArgs = ['rebase'];
+  if (operation === 'continue') rebaseArgs.push('--continue');
+  else if (operation === 'abort') rebaseArgs.push('--abort');
+  else if (operation === 'skip') rebaseArgs.push('--skip');
+  else {
+    const branch = stringArg(args, 'branch') ?? stringArg(args, 'onto');
+    if (!branch) {
+      return resultFor(spec, 'blocked', 'rebase start requires a branch or onto argument.', {
+        cwd: request.cwd,
+        git_root: gitRoot,
+        action: 'rebase',
+        approval_id: request.approval_id,
+        argument_keys: Object.keys(args).sort(),
+        required_argument: 'branch'
+      }, ['git:rebase', 'approval:supplied', 'branch:required']);
+    }
+    if (!isSafeGitRefName(branch)) {
+      return resultFor(spec, 'blocked', 'rebase branch name is unsafe.', {
+        cwd: request.cwd,
+        git_root: gitRoot,
+        action: 'rebase',
+        approval_id: request.approval_id,
+        branch
+      }, ['git:rebase', 'approval:supplied', 'branch:blocked']);
+    }
+    rebaseArgs.push(branch);
+  }
+
+  const rebase = await git(gitRoot, rebaseArgs, { timeoutMs: 60_000 });
+  if (rebase.code !== 0) {
+    const status = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+    const statusSummary = status.code === 0 ? parseGitStatus(status.stdout) : null;
+    const conflictedFiles = statusSummary?.files.filter((f) => f.is_conflicted) ?? [];
+    const hasConflicts = conflictedFiles.length > 0;
+
+    if (hasConflicts) {
+      return resultFor(spec, 'failed', 'Rebase paused due to conflicts. Resolve conflicts and run rebase --continue.', {
+        cwd: request.cwd,
+        git_root: gitRoot,
+        action: 'rebase',
+        approval_id: request.approval_id,
+        operation,
+        conflict: true,
+        conflicted_files: conflictedFiles.map((f) => f.path),
+        exit_code: rebase.code,
+        stdout: rebase.stdout.trim(),
+        stderr: rebase.stderr.trim()
+      }, ['git:rebase', 'approval:supplied', 'confirmation:supplied', 'git:conflict']);
+    }
+
+    return gitCommandFailedResult(spec, 'git rebase failed.', args, gitRoot, 'rebase', rebase, ['git:rebase']);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : null;
+
+  return resultFor(spec, 'completed', `Rebase ${operation} completed.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'rebase',
+    approval_id: request.approval_id,
+    operation,
+    conflict: false,
+    branch_state: finalSummary?.branch ?? null,
+    has_uncommitted_changes: finalSummary?.hasUncommittedChanges ?? null
+  }, ['git:rebase', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitResolveConflict(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_resolve')) {
+    return resultFor(spec, 'blocked', 'resolve_conflict requires confirm_resolve: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'resolve_conflict',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_resolve'
+    }, ['git:resolve_conflict', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const rawPath = stringArg(args, 'path');
+  if (!rawPath) {
+    return resultFor(spec, 'blocked', 'resolve_conflict requires a path.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'resolve_conflict',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'path'
+    }, ['git:resolve_conflict', 'approval:supplied', 'path:required']);
+  }
+
+  const normalized = normalizeGitPathspec(gitRoot, rawPath);
+  if (!normalized.ok) {
+    return resultFor(spec, 'blocked', normalized.message, {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'resolve_conflict',
+      approval_id: request.approval_id,
+      path: rawPath
+    }, ['git:resolve_conflict', 'approval:supplied', 'path:blocked']);
+  }
+
+  const strategy = stringArg(args, 'strategy');
+  if (!strategy || !['ours', 'theirs', 'both'].includes(strategy)) {
+    return resultFor(spec, 'blocked', "resolve_conflict strategy must be 'ours', 'theirs', or 'both'.", {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'resolve_conflict',
+      approval_id: request.approval_id,
+      path: rawPath,
+      strategy
+    }, ['git:resolve_conflict', 'approval:supplied', 'strategy:required']);
+  }
+
+  if (strategy === 'both') {
+    const absolutePath = path.resolve(gitRoot, rawPath);
+    let content: string;
+    try {
+      content = await readFile(absolutePath, 'utf8');
+    } catch (error) {
+      return failedResult(spec, error instanceof Error ? error.message : String(error), args, ['git:resolve_conflict', 'read:error']);
+    }
+    // Accept both sides: keep content from both conflict blocks.
+    const resolved = content
+      .replace(/<<<<<<< [^\n]*\n/g, '')
+      .replace(/=======\n/g, '')
+      .replace(/>>>>>>> [^\n]*\n/g, '');
+    await writeFile(absolutePath, resolved, 'utf8');
+  } else {
+    const checkout = await git(gitRoot, ['checkout', `--${strategy}`, '--', normalized.pathspec]);
+    if (checkout.code !== 0) {
+      return gitCommandFailedResult(spec, `git checkout --${strategy} failed.`, args, gitRoot, 'resolve_conflict', checkout, ['git:resolve_conflict']);
+    }
+  }
+
+  const add = await git(gitRoot, ['add', '--', normalized.pathspec]);
+  if (add.code !== 0) {
+    return gitCommandFailedResult(spec, 'git add failed after conflict resolution.', args, gitRoot, 'resolve_conflict', add, ['git:resolve_conflict', 'git:add']);
+  }
+
+  const status = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const statusSummary = status.code === 0 ? parseGitStatus(status.stdout) : null;
+  const remainingConflicts = statusSummary?.files.filter((f) => f.is_conflicted) ?? [];
+
+  return resultFor(spec, 'completed', `Resolved ${rawPath} using ${strategy}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'resolve_conflict',
+    approval_id: request.approval_id,
+    path: rawPath,
+    strategy,
+    remaining_conflicts: remainingConflicts.map((f) => f.path),
+    all_resolved: remainingConflicts.length === 0,
+    branch: statusSummary?.branch ?? null
+  }, ['git:resolve_conflict', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitDeleteBranch(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_delete_branch')) {
+    return resultFor(spec, 'blocked', 'delete_branch requires confirm_delete_branch: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'delete_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_delete_branch'
+    }, ['git:delete_branch', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const branch = stringArg(args, 'branch');
+  if (!branch) {
+    return resultFor(spec, 'blocked', 'delete_branch requires a branch name.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'delete_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'branch'
+    }, ['git:delete_branch', 'approval:supplied', 'branch:required']);
+  }
+
+  if (!isSafeGitRefName(branch)) {
+    return resultFor(spec, 'blocked', 'delete_branch branch name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'delete_branch',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:delete_branch', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const current = await git(gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (current.code === 0 && current.stdout.trim() === branch) {
+    return resultFor(spec, 'blocked', `Cannot delete the current branch '${branch}'.`, {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'delete_branch',
+      approval_id: request.approval_id,
+      branch
+    }, ['git:delete_branch', 'approval:supplied', 'branch:current']);
+  }
+
+  const force = booleanArg(args, 'force');
+  const deleteArgs = ['branch', force ? '-D' : '-d', branch];
+  const deleted = await git(gitRoot, deleteArgs);
+  if (deleted.code !== 0) {
+    return gitCommandFailedResult(spec, 'git branch delete failed.', args, gitRoot, 'delete_branch', deleted, ['git:delete_branch']);
+  }
+
+  return resultFor(spec, 'completed', `Deleted branch ${branch}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'delete_branch',
+    approval_id: request.approval_id,
+    branch,
+    force
+  }, ['git:delete_branch', 'approval:supplied', 'confirmation:supplied']);
+}
+
+async function executeGitRenameBranch(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  gitRoot: string
+): Promise<CodeToolExecuteResult> {
+  if (!booleanArg(args, 'confirm_rename_branch')) {
+    return resultFor(spec, 'blocked', 'rename_branch requires confirm_rename_branch: true after Core approval.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'rename_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_confirmation: 'confirm_rename_branch'
+    }, ['git:rename_branch', 'approval:supplied', 'confirmation:required']);
+  }
+
+  const newName = stringArg(args, 'new_name');
+  if (!newName) {
+    return resultFor(spec, 'blocked', 'rename_branch requires a new_name.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'rename_branch',
+      approval_id: request.approval_id,
+      argument_keys: Object.keys(args).sort(),
+      required_argument: 'new_name'
+    }, ['git:rename_branch', 'approval:supplied', 'new_name:required']);
+  }
+
+  if (!isSafeGitRefName(newName)) {
+    return resultFor(spec, 'blocked', 'rename_branch new_name is unsafe.', {
+      cwd: request.cwd,
+      git_root: gitRoot,
+      action: 'rename_branch',
+      approval_id: request.approval_id,
+      new_name: newName
+    }, ['git:rename_branch', 'approval:supplied', 'branch:blocked']);
+  }
+
+  const renamed = await git(gitRoot, ['branch', '-m', newName]);
+  if (renamed.code !== 0) {
+    return gitCommandFailedResult(spec, 'git branch rename failed.', args, gitRoot, 'rename_branch', renamed, ['git:rename_branch']);
+  }
+
+  const finalStatus = await git(gitRoot, ['status', '--porcelain=v1', '--branch']);
+  const finalSummary = finalStatus.code === 0 ? parseGitStatus(finalStatus.stdout) : null;
+
+  return resultFor(spec, 'completed', `Renamed branch to ${newName}.`, {
+    cwd: request.cwd,
+    git_root: gitRoot,
+    action: 'rename_branch',
+    approval_id: request.approval_id,
+    new_name: newName,
+    branch: finalSummary?.branch ?? newName
+  }, ['git:rename_branch', 'approval:supplied', 'confirmation:supplied']);
 }
 
 /**
@@ -1310,7 +2114,11 @@ interface GitDiffPreviewBuildOptions {
   maxDiffBytes: number;
 }
 
-async function git(cwd: string, args: string[], options?: { input?: string }): Promise<GitCommandResult> {
+async function git(
+  cwd: string,
+  args: string[],
+  options?: { input?: string; timeoutMs?: number }
+): Promise<GitCommandResult> {
   return new Promise((resolve) => {
     const child = spawn('git', args, {
       cwd,
@@ -1320,10 +2128,11 @@ async function git(cwd: string, args: string[], options?: { input?: string }): P
 
     let stdout = '';
     let stderr = '';
+    const timeoutMs = options?.timeoutMs ?? 10_000;
     const timeout = setTimeout(() => {
       child.kill();
       resolve({ code: -1, stdout, stderr: stderr || 'git command timed out' });
-    }, 10_000);
+    }, timeoutMs);
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -1721,6 +2530,67 @@ function parseWorktrees(output: string): Array<Record<string, string | boolean>>
   return entries;
 }
 
+interface GitBranchEntry {
+  name: string;
+  is_current: boolean;
+  is_remote: boolean;
+  commit_hash: string | null;
+  subject: string | null;
+  last_commit_date: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+function parseGitBranchList(output: string, currentBranch: string | null): GitBranchEntry[] {
+  const branches: GitBranchEntry[] = [];
+  for (const line of nonEmptyLines(output)) {
+    const parts = line.split('\t');
+    const [rawName, commitHash, subject, lastCommitDate, upstream, track] = parts;
+    if (!rawName) continue;
+    const isRemote = rawName.startsWith('refs/remotes/');
+    const name = isRemote
+      ? rawName.slice('refs/'.length)
+      : rawName.startsWith('refs/heads/')
+        ? rawName.slice('refs/heads/'.length)
+        : rawName;
+    const ahead = Number(track?.match(/ahead\s+(\d+)/)?.[1] ?? 0);
+    const behind = Number(track?.match(/behind\s+(\d+)/)?.[1] ?? 0);
+    branches.push({
+      name,
+      is_current: name === currentBranch,
+      is_remote: isRemote,
+      commit_hash: commitHash ?? null,
+      subject: subject ?? null,
+      last_commit_date: lastCommitDate ?? null,
+      upstream: upstream ?? null,
+      ahead,
+      behind
+    });
+  }
+  return branches;
+}
+
+interface BranchTrackingInfo {
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+function parseBranchTrackingInfo(output: string): BranchTrackingInfo[] {
+  const entries: BranchTrackingInfo[] = [];
+  for (const line of nonEmptyLines(output)) {
+    const parts = line.split('\t');
+    if (parts.length < 3) continue;
+    const [branch, upstream, track] = parts;
+    const ahead = Number(track?.match(/ahead\s+(\d+)/)?.[1] ?? 0);
+    const behind = Number(track?.match(/behind\s+(\d+)/)?.[1] ?? 0);
+    entries.push({ branch, upstream: upstream || null, ahead, behind });
+  }
+  return entries;
+}
+
 function pushReadinessBlockers(status: GitStatusSummary): string[] {
   const blockers: string[] = [];
   if (status.branch === 'HEAD' || status.branch.startsWith('HEAD ') || status.branch.includes('detached')) {
@@ -1759,7 +2629,10 @@ function nonEmptyLines(output: string): string[] {
   return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function booleanArg(args: Record<string, unknown>, key: string): boolean {
+function booleanArg(args: Record<string, unknown>, key: string, defaultValue = false): boolean {
+  if (args[key] === undefined || args[key] === null) {
+    return defaultValue;
+  }
   return args[key] === true;
 }
 

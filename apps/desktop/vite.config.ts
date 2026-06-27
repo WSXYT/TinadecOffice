@@ -19,6 +19,13 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true
   },
+  optimizeDeps: {
+    include: [
+      '@xterm/xterm',
+      '@xterm/addon-fit',
+      '@xterm/addon-web-links',
+    ],
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts']

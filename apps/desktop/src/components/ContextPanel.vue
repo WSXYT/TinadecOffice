@@ -10,6 +10,7 @@ import OrchestrationTab from './OrchestrationTab.vue'
 import PanelHome from './PanelHome.vue'
 import PreviewBrowserPanel from './PreviewBrowserPanel.vue'
 import AgentActivityPanel from './AgentActivityPanel.vue'
+import TerminalPanel from './TerminalPanel.vue'
 import { usePanelTabs, panelIcons, type PanelType, type PanelTab } from '../composables/usePanelTabs'
 import { useResponsiveMode, useTabLabelMode } from '../composables/useElementSize'
 import type { ApprovalDto, EventEnvelope, DoctorReportDto, OrchestrationSnapshotDto, RuntimeReadinessReceiptDto, ToolExecutionTimelineItemDto } from '../api'
@@ -289,6 +290,7 @@ function getIconForType(type: PanelType): LucideIcon {
     case 'doctor': return panelIcons.Stethoscope
     case 'preview': return panelIcons.Globe
     case 'agent': return panelIcons.Bot
+    case 'terminal': return panelIcons.TerminalSquare
     default: return panelIcons.Globe
   }
 }
@@ -507,6 +509,19 @@ function startResize(event: MouseEvent) {
             :thinking-steps="thinkingSteps"
             :progress-events="progressEvents"
             :orchestration="orchestration"
+          />
+        </div>
+
+        <!-- Terminal panels -->
+        <div
+          v-for="tab in tabs.filter((t) => t.type === 'terminal')"
+          :key="tab.id"
+          v-show="activeTabId === tab.id"
+          class="browser-tab-pane browser-tab-pane-terminal"
+        >
+          <TerminalPanel
+            :cwd="currentProjectPath"
+            :visible="activeTabId === tab.id"
           />
         </div>
       </div>

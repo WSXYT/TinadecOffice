@@ -7,6 +7,7 @@ import {
   Stethoscope,
   Globe,
   Bot,
+  TerminalSquare,
   type LucideIcon,
 } from '@lucide/vue'
 
@@ -19,6 +20,7 @@ export type PanelType =
   | 'doctor'
   | 'preview'
   | 'agent'
+  | 'terminal'
 
 export interface PanelTab {
   id: string
@@ -77,8 +79,8 @@ export function usePanelTabs() {
     icon: LucideIcon,
     state?: Record<string, unknown>,
   ): string {
-    // For non-preview types, reuse existing tab if present
-    if (type !== 'preview') {
+    // For non-preview/non-terminal types, reuse existing tab if present
+    if (type !== 'preview' && type !== 'terminal') {
       const existing = tabs.value.find((t) => t.type === type)
       if (existing) {
         activeTabId.value = existing.id
@@ -231,4 +233,5 @@ export const panelIcons = {
   Stethoscope,
   Globe,
   Bot,
+  TerminalSquare,
 }

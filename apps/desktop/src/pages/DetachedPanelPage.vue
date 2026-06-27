@@ -13,6 +13,7 @@ import DoctorTab from '@/components/DoctorTab.vue'
 import OrchestrationTab from '@/components/OrchestrationTab.vue'
 import PreviewBrowserPanel from '@/components/PreviewBrowserPanel.vue'
 import AgentActivityPanel from '@/components/AgentActivityPanel.vue'
+import TerminalPanel from '@/components/TerminalPanel.vue'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -273,6 +274,12 @@ watch(sessionId, () => {
           :thinking-steps="agentThinkingSteps"
           :progress-events="agentProgressEvents"
           :orchestration="orchestration"
+        />
+
+        <TerminalPanel
+          v-else-if="tabType === 'terminal'"
+          :cwd="projectPath"
+          :visible="true"
         />
 
         <div v-else class="detached-panel-unknown">

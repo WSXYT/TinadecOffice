@@ -34,6 +34,13 @@ const features = computed<FeatureCard[]>(() => [
     color: '#58a6ff',
   },
   {
+    type: 'terminal',
+    titleKey: 'context.homeTerminal',
+    descKey: 'context.homeTerminalDesc',
+    icon: panelIcons.TerminalSquare,
+    color: '#3fb950',
+  },
+  {
     type: 'git',
     titleKey: 'context.homeGit',
     descKey: 'context.homeGitDesc',

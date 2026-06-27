@@ -13,6 +13,10 @@ const {
   broadcastToPanels,
   tagMainWindow,
 } = require('./panelWindow.cjs');
+const {
+  registerTerminalIpc,
+  destroyAllTerminals,
+} = require('./terminalManager.cjs');
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -156,8 +160,12 @@ ipcMain.on('tinadec:broadcast-theme', (event, theme, accentColor) => {
   broadcastToPanels('panel:theme-changed', { theme, accentColor });
 });
 
-// Persist panel states before quit
+// Register terminal IPC handlers
+registerTerminalIpc();
+
+// Persist panel states before quit and clean up terminals
 app.on('before-quit', () => {
+  destroyAllTerminals();
   persistPanelStatesForQuit();
 });
 

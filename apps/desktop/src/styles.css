@@ -1898,6 +1898,12 @@ button {
   overflow-x: hidden;
 }
 
+/* Terminal panels need no scroll and full height */
+.browser-tab-pane-terminal {
+  overflow: hidden;
+  padding: 0;
+}
+
 /* ===== Collapsed panel ===== */
 .float-panel-collapsed-bar {
   display: flex;

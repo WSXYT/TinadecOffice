@@ -3,17 +3,22 @@ import {
   AlertTriangle,
   CheckCircle2,
   GitBranch as GitBranchIcon,
+  GitCommit,
+  GitMerge,
   GitPullRequest,
   Loader2,
+  MoreVertical,
+  Pencil,
   Plus,
   RefreshCw,
   ShieldCheck,
   ShieldX,
   Star,
+  Trash2,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api, type ApprovalDto } from '../../api'
+import type { ApprovalDto } from '../../api'
 import { UiBadge, UiButton, UiInput, UiScrollArea } from '../ui'
 import CommitCompare from './CommitCompare.vue'
 import WorktreeManager from './WorktreeManager.vue'
@@ -21,19 +26,50 @@ import WorktreeManager from './WorktreeManager.vue'
 const props = defineProps<{
   cwd?: string
   currentBranch: string
+  branches: Array<{
+    name: string
+    is_current: boolean
+    is_remote: boolean
+    upstream?: string | null
+    ahead?: number
+    behind?: number
+    last_subject?: string
+    last_date?: string
+  }>
   checkoutApproval: ApprovalDto | null
   branchApproval: ApprovalDto | null
+  fetchApproval: ApprovalDto | null
+  deleteBranchApproval: ApprovalDto | null
+  renameBranchApproval: ApprovalDto | null
+  mergeApproval: ApprovalDto | null
+  rebaseApproval: ApprovalDto | null
   canDecideCheckoutApproval: boolean
   canDecideBranchApproval: boolean
+  canDecideFetchApproval: boolean
+  canDecideDeleteBranchApproval: boolean
+  canDecideRenameBranchApproval: boolean
+  canDecideMergeApproval: boolean
+  canDecideRebaseApproval: boolean
+  canRequestFetchApproval: boolean
   operationLoading: boolean
 }>()
 
 const emit = defineEmits<{
   'checkout': [branch: string]
   'create-branch': [name: string]
+  'fetch': []
+  'delete-branch': [payload: { branch: string; force: boolean }]
+  'rename-branch': [newName: string]
+  'merge-branch': [branch: string]
+  'rebase-branch': [branch: string]
   'decide-approval': [approval: ApprovalDto, decision: 'approved' | 'rejected']
   'execute-checkout': []
   'execute-create-branch': []
+  'execute-fetch': []
+  'execute-delete-branch': []
+  'execute-rename-branch': []
+  'execute-merge': []
+  'execute-rebase': [operation: 'continue' | 'abort' | 'skip']
 }>()
 
 const { t } = useI18n()
@@ -41,80 +77,19 @@ const { t } = useI18n()
 // ---- State ----
 const loading = ref(false)
 const error = ref<string | null>(null)
-const branches = ref<Array<{
-  name: string
-  is_current: boolean
-  is_remote: boolean
-  upstream?: string | null
-  last_subject?: string
-  last_date?: string
-}>>([])
 const filterText = ref('')
 const showCreateForm = ref(false)
 const newBranchName = ref('')
 const activeSubview = ref<'branches' | 'worktrees' | 'compare'>('branches')
-
-// ---- Fetch branches ----
-async function loadBranches() {
-  if (!props.cwd) return
-  loading.value = true
-  error.value = null
-  try {
-    const res = await api.executeCodeTool('git_worktree_manager', {
-      cwd: props.cwd,
-      arguments: { action: 'log', limit: 1 },
-    })
-    // Parse branch info from status - we use push_plan which has branch info
-    const planRes = await api.executeCodeTool('git_worktree_manager', {
-      cwd: props.cwd,
-      arguments: { action: 'push_plan' },
-    })
-    const data = (planRes.data ?? {}) as { branch?: string }
-    // For branch listing, we'll use git branch command via log action workaround
-    // The backend doesn't have a dedicated branch_list action, so we build from worktree info
-    const wtRes = await api.executeCodeTool('git_worktree_manager', {
-      cwd: props.cwd,
-      arguments: { action: 'worktrees' },
-    })
-    const wtData = (wtRes.data ?? {}) as { worktrees?: Array<Record<string, unknown>> }
-    const wtList = Array.isArray(wtData.worktrees) ? wtData.worktrees : []
-    const branchList: typeof branches.value = []
-    const seen = new Set<string>()
-    for (const wt of wtList) {
-      const branch = typeof wt.branch === 'string' ? wt.branch : null
-      if (branch && !seen.has(branch)) {
-        seen.add(branch)
-        branchList.push({
-          name: branch,
-          is_current: wt.is_current === true || branch === data.branch,
-          is_remote: false,
-          last_subject: typeof wt.commit === 'string' ? wt.commit : undefined,
-        })
-      }
-    }
-    // Always ensure current branch is shown
-    if (data.branch && !seen.has(data.branch)) {
-      branchList.unshift({
-        name: data.branch,
-        is_current: true,
-        is_remote: false,
-      })
-    }
-    branches.value = branchList
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : t('context.gitLoadFailed')
-  } finally {
-    loading.value = false
-  }
-}
-
-watch(() => props.cwd, () => { void loadBranches() }, { immediate: true })
+const menuBranch = ref<string | null>(null)
+const renameName = ref('')
+const showRenameForm = ref(false)
 
 // ---- Computed ----
 const filteredBranches = computed(() => {
-  if (!filterText.value.trim()) return branches.value
+  if (!filterText.value.trim()) return props.branches
   const lower = filterText.value.toLowerCase()
-  return branches.value.filter((b) => b.name.toLowerCase().includes(lower))
+  return props.branches.filter((b) => b.name.toLowerCase().includes(lower))
 })
 
 const localBranches = computed(() => filteredBranches.value.filter((b) => !b.is_remote))
@@ -137,6 +112,40 @@ function handleCreateBranch() {
   showCreateForm.value = false
 }
 
+function openBranchMenu(branch: string) {
+  menuBranch.value = menuBranch.value === branch ? null : branch
+}
+
+function handleDeleteBranch(branch: string, force: boolean) {
+  emit('delete-branch', { branch, force })
+  menuBranch.value = null
+}
+
+function startRenameBranch(branch: string) {
+  renameName.value = branch
+  showRenameForm.value = true
+  menuBranch.value = null
+}
+
+function handleRenameBranch() {
+  if (!renameName.value.trim() || renameName.value.trim() === props.currentBranch) {
+    showRenameForm.value = false
+    return
+  }
+  emit('rename-branch', renameName.value.trim())
+  showRenameForm.value = false
+}
+
+function handleMergeBranch(branch: string) {
+  emit('merge-branch', branch)
+  menuBranch.value = null
+}
+
+function handleRebaseBranch(branch: string) {
+  emit('rebase-branch', branch)
+  menuBranch.value = null
+}
+
 function onSwitchWorktree(path: string) {
   // Delegate to parent
 }
@@ -149,7 +158,11 @@ function onRemoveWorktree(path: string) {
   // Delegate to parent
 }
 
-defineExpose({ refresh: loadBranches })
+function refreshBranches() {
+  emit('fetch')
+}
+
+defineExpose({ refresh: refreshBranches })
 </script>
 
 <template>
@@ -189,8 +202,8 @@ defineExpose({ refresh: loadBranches })
           :placeholder="t('context.gitBranchFilter')"
           size="sm"
         />
-        <UiButton variant="ghost" size="xs" :disabled="loading" @click="loadBranches">
-          <RefreshCw :size="12" :class="{ spinning: loading }" />
+        <UiButton variant="ghost" size="xs" :disabled="!canRequestFetchApproval || operationLoading" @click="emit('fetch')">
+          <RefreshCw :size="12" :class="{ spinning: operationLoading }" />
         </UiButton>
         <UiButton variant="secondary" size="xs" @click="showCreateForm = !showCreateForm">
           <Plus :size="12" />
@@ -237,6 +250,30 @@ defineExpose({ refresh: loadBranches })
         </div>
       </div>
 
+      <!-- Rename form -->
+      <div v-if="showRenameForm" class="git-branch-create-form">
+        <UiInput
+          v-model="renameName"
+          :placeholder="t('context.gitNewBranchPlaceholder')"
+          size="sm"
+          @keyup.enter="handleRenameBranch"
+        />
+        <div class="git-branch-create-actions">
+          <UiButton
+            variant="secondary"
+            size="sm"
+            :disabled="!renameName.trim() || renameName.trim() === currentBranch"
+            @click="handleRenameBranch"
+          >
+            <ShieldCheck :size="13" />
+            <span>{{ t('context.gitRequestApproval') }}</span>
+          </UiButton>
+          <UiButton variant="ghost" size="sm" @click="showRenameForm = false">
+            {{ t('context.gitCompareCancel') }}
+          </UiButton>
+        </div>
+      </div>
+
       <!-- Error -->
       <div v-if="error" class="git-branch-error">
         <AlertTriangle :size="13" />
@@ -253,25 +290,68 @@ defineExpose({ refresh: loadBranches })
       <UiScrollArea v-else class="git-branch-scroll">
         <div v-if="localBranches.length > 0" class="git-branch-group">
           <div class="git-branch-group-title">{{ t('context.gitLocalBranches') }}</div>
-          <button
+          <div
             v-for="branch in localBranches"
             :key="branch.name"
             class="git-branch-row"
-            :class="{ current: branch.is_current }"
-            @click="handleCheckout(branch.name)"
+            :class="{ current: branch.is_current, 'menu-open': menuBranch === branch.name }"
           >
-            <div class="git-branch-row-icon">
-              <GitBranchIcon :size="13" />
-              <Star v-if="branch.is_current" :size="10" class="git-branch-star" />
+            <button class="git-branch-row-main" @click="handleCheckout(branch.name)">
+              <div class="git-branch-row-icon">
+                <GitBranchIcon :size="13" />
+                <Star v-if="branch.is_current" :size="10" class="git-branch-star" />
+              </div>
+              <div class="git-branch-row-body">
+                <span class="git-branch-row-name">{{ branch.name }}</span>
+                <span v-if="branch.last_subject" class="git-branch-row-last">
+                  {{ branch.last_subject }}
+                </span>
+              </div>
+              <div class="git-branch-row-meta">
+                <UiBadge v-if="(branch.ahead ?? 0) > 0 || (branch.behind ?? 0) > 0" variant="outline" class="git-branch-track">
+                  ↑{{ branch.ahead ?? 0 }} ↓{{ branch.behind ?? 0 }}
+                </UiBadge>
+                <UiBadge v-if="branch.is_current" variant="secondary">{{ t('context.gitWorktreeCurrent') }}</UiBadge>
+              </div>
+            </button>
+            <button
+              class="git-branch-menu-toggle"
+              :title="t('context.gitBranchActions')"
+              @click.stop="openBranchMenu(branch.name)"
+            >
+              <MoreVertical :size="12" />
+            </button>
+            <div v-if="menuBranch === branch.name" class="git-branch-menu">
+              <button v-if="!branch.is_current" class="git-branch-menu-item" @click="handleMergeBranch(branch.name)">
+                <GitMerge :size="12" />
+                <span>{{ t('context.gitMergeBranch') }}</span>
+              </button>
+              <button v-if="!branch.is_current" class="git-branch-menu-item" @click="handleRebaseBranch(branch.name)">
+                <GitCommit :size="12" />
+                <span>{{ t('context.gitRebaseBranch') }}</span>
+              </button>
+              <button class="git-branch-menu-item" @click="startRenameBranch(branch.name)">
+                <Pencil :size="12" />
+                <span>{{ t('context.gitRenameBranch') }}</span>
+              </button>
+              <button
+                class="git-branch-menu-item danger"
+                :disabled="branch.is_current"
+                @click="handleDeleteBranch(branch.name, false)"
+              >
+                <Trash2 :size="12" />
+                <span>{{ t('context.gitDeleteBranch') }}</span>
+              </button>
+              <button
+                v-if="!branch.is_current"
+                class="git-branch-menu-item danger"
+                @click="handleDeleteBranch(branch.name, true)"
+              >
+                <Trash2 :size="12" />
+                <span>{{ t('context.gitForceDeleteBranch') }}</span>
+              </button>
             </div>
-            <div class="git-branch-row-body">
-              <span class="git-branch-row-name">{{ branch.name }}</span>
-              <span v-if="branch.last_subject" class="git-branch-row-last">
-                {{ branch.last_subject }}
-              </span>
-            </div>
-            <UiBadge v-if="branch.is_current" variant="secondary">{{ t('context.gitWorktreeCurrent') }}</UiBadge>
-          </button>
+          </div>
         </div>
 
         <div v-if="remoteBranches.length > 0" class="git-branch-group">
@@ -286,6 +366,9 @@ defineExpose({ refresh: loadBranches })
             <GitBranchIcon :size="13" />
             <div class="git-branch-row-body">
               <span class="git-branch-row-name">{{ branch.name }}</span>
+              <span v-if="branch.last_subject" class="git-branch-row-last">
+                {{ branch.last_subject }}
+              </span>
             </div>
           </button>
         </div>
@@ -294,6 +377,35 @@ defineExpose({ refresh: loadBranches })
           {{ t('context.gitNoBranches') }}
         </div>
       </UiScrollArea>
+
+      <!-- Fetch approval -->
+      <div v-if="fetchApproval" class="git-branch-checkout-approval">
+        <div class="git-branch-checkout-approval-info">
+          <ShieldCheck :size="13" />
+          <span>{{ fetchApproval.summary }}</span>
+          <UiBadge :variant="fetchApproval.status === 'approved' ? 'default' : 'secondary'">
+            {{ fetchApproval.status }}
+          </UiBadge>
+        </div>
+        <div v-if="canDecideFetchApproval" class="git-approval-decide">
+          <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', fetchApproval!, 'approved')">
+            <CheckCircle2 :size="14" />
+          </button>
+          <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', fetchApproval!, 'rejected')">
+            <ShieldX :size="14" />
+          </button>
+        </div>
+        <UiButton
+          v-if="fetchApproval.status === 'approved'"
+          variant="secondary"
+          size="sm"
+          :disabled="operationLoading"
+          @click="emit('execute-fetch')"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitExecuteFetch') }}</span>
+        </UiButton>
+      </div>
 
       <!-- Checkout approval -->
       <div v-if="checkoutApproval" class="git-branch-checkout-approval">
@@ -321,6 +433,122 @@ defineExpose({ refresh: loadBranches })
         >
           <CheckCircle2 :size="13" />
           <span>{{ t('context.gitExecuteCheckout') }}</span>
+        </UiButton>
+      </div>
+
+      <!-- Merge approval -->
+      <div v-if="mergeApproval" class="git-branch-checkout-approval">
+        <div class="git-branch-checkout-approval-info">
+          <ShieldCheck :size="13" />
+          <span>{{ mergeApproval.summary }}</span>
+          <UiBadge :variant="mergeApproval.status === 'approved' ? 'default' : 'secondary'">
+            {{ mergeApproval.status }}
+          </UiBadge>
+        </div>
+        <div v-if="canDecideMergeApproval" class="git-approval-decide">
+          <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', mergeApproval!, 'approved')">
+            <CheckCircle2 :size="14" />
+          </button>
+          <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', mergeApproval!, 'rejected')">
+            <ShieldX :size="14" />
+          </button>
+        </div>
+        <UiButton
+          v-if="mergeApproval.status === 'approved'"
+          variant="secondary"
+          size="sm"
+          :disabled="operationLoading"
+          @click="emit('execute-merge')"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitExecuteMerge') }}</span>
+        </UiButton>
+      </div>
+
+      <!-- Rebase approval -->
+      <div v-if="rebaseApproval" class="git-branch-checkout-approval">
+        <div class="git-branch-checkout-approval-info">
+          <ShieldCheck :size="13" />
+          <span>{{ rebaseApproval.summary }}</span>
+          <UiBadge :variant="rebaseApproval.status === 'approved' ? 'default' : 'secondary'">
+            {{ rebaseApproval.status }}
+          </UiBadge>
+        </div>
+        <div v-if="canDecideRebaseApproval" class="git-approval-decide">
+          <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', rebaseApproval!, 'approved')">
+            <CheckCircle2 :size="14" />
+          </button>
+          <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', rebaseApproval!, 'rejected')">
+            <ShieldX :size="14" />
+          </button>
+        </div>
+        <UiButton
+          v-if="rebaseApproval.status === 'approved'"
+          variant="secondary"
+          size="sm"
+          :disabled="operationLoading"
+          @click="emit('execute-rebase', 'continue')"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitExecuteRebase') }}</span>
+        </UiButton>
+      </div>
+
+      <!-- Delete branch approval -->
+      <div v-if="deleteBranchApproval" class="git-branch-checkout-approval">
+        <div class="git-branch-checkout-approval-info">
+          <ShieldCheck :size="13" />
+          <span>{{ deleteBranchApproval.summary }}</span>
+          <UiBadge :variant="deleteBranchApproval.status === 'approved' ? 'default' : 'secondary'">
+            {{ deleteBranchApproval.status }}
+          </UiBadge>
+        </div>
+        <div v-if="canDecideDeleteBranchApproval" class="git-approval-decide">
+          <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', deleteBranchApproval!, 'approved')">
+            <CheckCircle2 :size="14" />
+          </button>
+          <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', deleteBranchApproval!, 'rejected')">
+            <ShieldX :size="14" />
+          </button>
+        </div>
+        <UiButton
+          v-if="deleteBranchApproval.status === 'approved'"
+          variant="secondary"
+          size="sm"
+          :disabled="operationLoading"
+          @click="emit('execute-delete-branch')"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitExecuteDeleteBranch') }}</span>
+        </UiButton>
+      </div>
+
+      <!-- Rename branch approval -->
+      <div v-if="renameBranchApproval" class="git-branch-checkout-approval">
+        <div class="git-branch-checkout-approval-info">
+          <ShieldCheck :size="13" />
+          <span>{{ renameBranchApproval.summary }}</span>
+          <UiBadge :variant="renameBranchApproval.status === 'approved' ? 'default' : 'secondary'">
+            {{ renameBranchApproval.status }}
+          </UiBadge>
+        </div>
+        <div v-if="canDecideRenameBranchApproval" class="git-approval-decide">
+          <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', renameBranchApproval!, 'approved')">
+            <CheckCircle2 :size="14" />
+          </button>
+          <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', renameBranchApproval!, 'rejected')">
+            <ShieldX :size="14" />
+          </button>
+        </div>
+        <UiButton
+          v-if="renameBranchApproval.status === 'approved'"
+          variant="secondary"
+          size="sm"
+          :disabled="operationLoading"
+          @click="emit('execute-rename-branch')"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitExecuteRenameBranch') }}</span>
         </UiButton>
       </div>
     </div>
@@ -460,24 +688,108 @@ defineExpose({ refresh: loadBranches })
 }
 
 .git-branch-row {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 2px 4px 2px 2px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
-.git-branch-row:hover {
+.git-branch-row:hover,
+.git-branch-row.menu-open {
   background: var(--bg-hover);
 }
 
 .git-branch-row.current {
   background: var(--bg-selected);
+}
+
+.git-branch-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.git-branch-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.git-branch-menu-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.git-branch-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 4px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.git-branch-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.git-branch-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.git-branch-menu-item.danger {
+  color: var(--text-reject, #f85149);
+}
+
+.git-branch-menu-item.danger:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.git-branch-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .git-branch-row-icon {
@@ -519,6 +831,18 @@ defineExpose({ refresh: loadBranches })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-branch-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.git-branch-track {
+  font-size: 10px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
 }
 
 .git-branch-empty {

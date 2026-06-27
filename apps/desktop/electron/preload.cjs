@@ -8,6 +8,28 @@ contextBridge.exposeInMainWorld('tinadec', {
   closeWindow: () => ipcRenderer.send('tinadec:close'),
   openDebugStudio: () => ipcRenderer.invoke('tinadec:open-debug-studio'),
 
+  // --- Terminal API ---
+  terminal: {
+    create: (options) => ipcRenderer.invoke('terminal:create', options),
+    write: (id, data) => ipcRenderer.send('terminal:write', id, data),
+    resize: (id, cols, rows) => ipcRenderer.send('terminal:resize', id, cols, rows),
+    destroy: (id) => ipcRenderer.send('terminal:destroy', id),
+    getShells: () => ipcRenderer.invoke('terminal:get-shells'),
+    list: () => ipcRenderer.invoke('terminal:list'),
+    onData: (id, callback) => {
+      const channel = `terminal:data:${id}`;
+      const handler = (_e, data) => callback(data);
+      ipcRenderer.on(channel, handler);
+      return () => ipcRenderer.removeListener(channel, handler);
+    },
+    onExit: (id, callback) => {
+      const channel = `terminal:exit:${id}`;
+      const handler = (_e, info) => callback(info.exitCode, info.signal);
+      ipcRenderer.on(channel, handler);
+      return () => ipcRenderer.removeListener(channel, handler);
+    },
+  },
+
   // --- Detached Panel Window API ---
   detachPanel: (tabId, type, title, state) =>
     ipcRenderer.invoke('tinadec:detach-panel', tabId, type, title, state),

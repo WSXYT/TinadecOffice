@@ -67,13 +67,14 @@ export function useMonacoDiff() {
     originalText: string,
     modifiedText: string,
     language: string,
+    options: { renderSideBySide?: boolean } = {},
   ): Promise<DiffEditor> {
     const m = await getMonaco()
     applyTheme(m)
 
     const editor = m.editor.createDiffEditor(container, {
       readOnly: true,
-      renderSideBySide: true,
+      renderSideBySide: options.renderSideBySide ?? true,
       automaticLayout: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,

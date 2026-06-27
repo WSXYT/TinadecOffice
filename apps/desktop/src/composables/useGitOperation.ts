@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { api, type ApprovalDto, type CodeToolExecuteResultDto } from '../api'
 import { useI18n } from 'vue-i18n'
 
@@ -184,6 +184,14 @@ export function useGitOperation(
   const pullApprovalId = ref<string | null>(null)
   const checkoutApprovalId = ref<string | null>(null)
   const branchApprovalId = ref<string | null>(null)
+  const fetchApprovalId = ref<string | null>(null)
+  const mergeApprovalId = ref<string | null>(null)
+  const rebaseApprovalId = ref<string | null>(null)
+  const resolveConflictApprovalId = ref<string | null>(null)
+  const resolveConflictPath = ref<string | null>(null)
+  const resolveConflictStrategy = ref<'ours' | 'theirs' | 'both' | null>(null)
+  const deleteBranchApprovalId = ref<string | null>(null)
+  const renameBranchApprovalId = ref<string | null>(null)
 
   // ---- Computed ----
   const previewData = computed(() => (preview.value?.data ?? {}) as GitPreviewData)
@@ -278,6 +286,24 @@ export function useGitOperation(
   const branchApproval = computed(
     () => allApprovals.value.find((a) => a.id === branchApprovalId.value) ?? null,
   )
+  const fetchApproval = computed(
+    () => allApprovals.value.find((a) => a.id === fetchApprovalId.value) ?? null,
+  )
+  const mergeApproval = computed(
+    () => allApprovals.value.find((a) => a.id === mergeApprovalId.value) ?? null,
+  )
+  const rebaseApproval = computed(
+    () => allApprovals.value.find((a) => a.id === rebaseApprovalId.value) ?? null,
+  )
+  const resolveConflictApproval = computed(
+    () => allApprovals.value.find((a) => a.id === resolveConflictApprovalId.value) ?? null,
+  )
+  const deleteBranchApproval = computed(
+    () => allApprovals.value.find((a) => a.id === deleteBranchApprovalId.value) ?? null,
+  )
+  const renameBranchApproval = computed(
+    () => allApprovals.value.find((a) => a.id === renameBranchApprovalId.value) ?? null,
+  )
 
   const canDecideIndexApproval = computed(() => indexApproval.value?.status === 'pending')
   const canDecideCommitApproval = computed(() => commitApproval.value?.status === 'pending')
@@ -285,6 +311,12 @@ export function useGitOperation(
   const canDecidePullApproval = computed(() => pullApproval.value?.status === 'pending')
   const canDecideCheckoutApproval = computed(() => checkoutApproval.value?.status === 'pending')
   const canDecideBranchApproval = computed(() => branchApproval.value?.status === 'pending')
+  const canDecideFetchApproval = computed(() => fetchApproval.value?.status === 'pending')
+  const canDecideMergeApproval = computed(() => mergeApproval.value?.status === 'pending')
+  const canDecideRebaseApproval = computed(() => rebaseApproval.value?.status === 'pending')
+  const canDecideResolveConflictApproval = computed(() => resolveConflictApproval.value?.status === 'pending')
+  const canDecideDeleteBranchApproval = computed(() => deleteBranchApproval.value?.status === 'pending')
+  const canDecideRenameBranchApproval = computed(() => renameBranchApproval.value?.status === 'pending')
 
   // ---- Validation computed ----
   const cwd = computed(() => currentProjectPath())
@@ -294,7 +326,7 @@ export function useGitOperation(
     Boolean(cwd.value && sid.value && selectedCommitPaths.value.length > 0),
   )
   const canRequestCommitApproval = computed(() =>
-    Boolean(cwd.value && sid.value && commitMessage.value.trim() && selectedCommitPaths.value.length > 0),
+    Boolean(cwd.value && sid.value && commitMessage.value.trim() && repoSummary.value.stagedCount > 0),
   )
   const canRequestPushApproval = computed(() =>
     Boolean(cwd.value && sid.value && hasPushCandidate.value),
@@ -302,6 +334,7 @@ export function useGitOperation(
   const canRequestPullApproval = computed(() =>
     Boolean(cwd.value && sid.value && repoSummary.value.behind > 0),
   )
+  const canRequestFetchApproval = computed(() => Boolean(cwd.value && sid.value))
 
   // ---- Actions ----
 
@@ -354,7 +387,7 @@ export function useGitOperation(
     try {
       const res = await api.executeCodeTool('git_worktree_manager', {
         cwd: path,
-        arguments: { action: 'worktrees' },
+        arguments: { action: 'branch_list', all: true },
       })
       branchResult.value = res
     } catch (err) {
@@ -456,12 +489,12 @@ export function useGitOperation(
     operationLoading.value = true
     feedback.value = null
     try {
-      const paths = selectedCommitPaths.value
+      const stagedCount = repoSummary.value.stagedCount
       const approval = await api.createApproval({
         session_id: sid.value,
         kind: 'git',
-        summary: `Commit ${paths.length} file${paths.length === 1 ? '' : 's'} on ${previewData.value.branch ?? 'HEAD'}`,
-        command: `git add -- ${paths.join(' ')} && git commit -m "${commitMessage.value.trim()}"`,
+        summary: `Commit ${stagedCount} staged file${stagedCount === 1 ? '' : 's'} on ${previewData.value.branch ?? 'HEAD'}`,
+        command: `git commit -m "${commitMessage.value.trim()}"`,
         cwd: cwd.value,
       })
       commitApprovalId.value = approval.id
@@ -486,7 +519,7 @@ export function useGitOperation(
         arguments: {
           action: 'commit',
           confirm_commit: true,
-          paths: selectedCommitPaths.value,
+          commit_staged_only: true,
           message: commitMessage.value.trim(),
         },
       })
@@ -578,7 +611,7 @@ export function useGitOperation(
     }
   }
 
-  async function executeApprovedPull() {
+  async function executeApprovedPull(options?: { rebase?: boolean; ff_only?: boolean }) {
     if (!cwd.value || !sid.value || !pullApproval.value || pullApproval.value.status !== 'approved') return
     operationLoading.value = true
     feedback.value = null
@@ -590,6 +623,10 @@ export function useGitOperation(
         arguments: {
           action: 'pull',
           confirm_pull: true,
+          branch: previewData.value.branch ?? undefined,
+          remote: previewData.value.upstream?.split('/')[0] ?? 'origin',
+          rebase: options?.rebase ?? false,
+          ff_only: options?.ff_only ?? false,
         },
       })
       feedback.value = result.summary
@@ -698,6 +735,385 @@ export function useGitOperation(
     }
   }
 
+  async function requestFetchApproval(emitApproval: (a: ApprovalDto) => void) {
+    if (!cwd.value || !sid.value || !canRequestFetchApproval.value) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Fetch remote updates for ${previewData.value.branch ?? 'HEAD'}`,
+        command: 'git fetch --all --prune',
+        cwd: cwd.value,
+      })
+      fetchApprovalId.value = approval.id
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedFetch() {
+    if (!cwd.value || !sid.value || !fetchApproval.value || fetchApproval.value.status !== 'approved') return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: fetchApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'fetch',
+          confirm_fetch: true,
+        },
+      })
+      feedback.value = result.summary
+      fetchApprovalId.value = null
+      await loadBranches()
+      await loadStatus()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitFetchFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function requestMergeApproval(branch: string, emitApproval: (a: ApprovalDto) => void) {
+    if (!cwd.value || !sid.value || !branch.trim()) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Merge branch ${branch} into ${previewData.value.branch ?? 'HEAD'}`,
+        command: `git merge ${branch}`,
+        cwd: cwd.value,
+      })
+      mergeApprovalId.value = approval.id
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedMerge() {
+    if (!cwd.value || !sid.value || !mergeApproval.value || mergeApproval.value.status !== 'approved') return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const branch = mergeApproval.value.command?.replace('git merge ', '').trim() ?? ''
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: mergeApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'merge',
+          confirm_merge: true,
+          branch,
+        },
+      })
+      feedback.value = result.summary
+      mergeApprovalId.value = null
+      await refreshAll()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitMergeFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function requestRebaseApproval(branch: string, emitApproval: (a: ApprovalDto) => void) {
+    if (!cwd.value || !sid.value || !branch.trim()) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Rebase ${previewData.value.branch ?? 'HEAD'} onto ${branch}`,
+        command: `git rebase ${branch}`,
+        cwd: cwd.value,
+      })
+      rebaseApprovalId.value = approval.id
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedRebase(operation: 'start' | 'continue' | 'abort' | 'skip' = 'start') {
+    if (!cwd.value || !sid.value || !rebaseApproval.value || rebaseApproval.value.status !== 'approved') return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const branch = operation === 'start'
+        ? rebaseApproval.value.command?.replace('git rebase ', '').trim() ?? ''
+        : undefined
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: rebaseApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'rebase',
+          confirm_rebase: true,
+          operation,
+          ...(branch ? { branch } : {}),
+        },
+      })
+      feedback.value = result.summary
+      if (operation !== 'start') {
+        rebaseApprovalId.value = null
+      }
+      await refreshAll()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitRebaseFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function requestResolveConflictApproval(
+    filePath: string,
+    strategy: 'ours' | 'theirs' | 'both',
+    emitApproval: (a: ApprovalDto) => void,
+  ) {
+    if (!cwd.value || !sid.value || !filePath.trim()) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Resolve conflict in ${filePath} using ${strategy}`,
+        command: `git checkout --${strategy} -- ${filePath}`,
+        cwd: cwd.value,
+      })
+      resolveConflictApprovalId.value = approval.id
+      resolveConflictPath.value = filePath
+      resolveConflictStrategy.value = strategy
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedResolveConflict() {
+    if (!cwd.value || !sid.value || !resolveConflictApproval.value || resolveConflictApproval.value.status !== 'approved') return
+    if (!resolveConflictPath.value || !resolveConflictStrategy.value) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: resolveConflictApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'resolve_conflict',
+          confirm_resolve: true,
+          path: resolveConflictPath.value,
+          strategy: resolveConflictStrategy.value,
+        },
+      })
+      feedback.value = result.summary
+      resolveConflictApprovalId.value = null
+      resolveConflictPath.value = null
+      resolveConflictStrategy.value = null
+      await loadStatus()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitResolveConflictFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function requestDeleteBranchApproval(branch: string, force: boolean, emitApproval: (a: ApprovalDto) => void) {
+    if (!cwd.value || !sid.value || !branch.trim()) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Delete branch ${branch}${force ? ' (force)' : ''}`,
+        command: `git branch ${force ? '-D' : '-d'} ${branch}`,
+        cwd: cwd.value,
+      })
+      deleteBranchApprovalId.value = approval.id
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedDeleteBranch() {
+    if (!cwd.value || !sid.value || !deleteBranchApproval.value || deleteBranchApproval.value.status !== 'approved') return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const command = deleteBranchApproval.value.command ?? ''
+      const force = command.includes(' -D ')
+      const branch = command.replace(/git branch -[Dd] /, '').trim()
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: deleteBranchApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'delete_branch',
+          confirm_delete_branch: true,
+          branch,
+          force,
+        },
+      })
+      feedback.value = result.summary
+      deleteBranchApprovalId.value = null
+      await loadBranches()
+      await loadStatus()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitDeleteBranchFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function requestRenameBranchApproval(newName: string, emitApproval: (a: ApprovalDto) => void) {
+    if (!cwd.value || !sid.value || !newName.trim()) return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const approval = await api.createApproval({
+        session_id: sid.value,
+        kind: 'git',
+        summary: `Rename current branch to ${newName}`,
+        command: `git branch -m ${newName}`,
+        cwd: cwd.value,
+      })
+      renameBranchApprovalId.value = approval.id
+      feedback.value = t('context.gitApprovalRequested')
+      emitApproval(approval)
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitApprovalRequestFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  async function executeApprovedRenameBranch() {
+    if (!cwd.value || !sid.value || !renameBranchApproval.value || renameBranchApproval.value.status !== 'approved') return
+    operationLoading.value = true
+    feedback.value = null
+    try {
+      const newName = renameBranchApproval.value.command?.replace('git branch -m ', '').trim() ?? ''
+      const result = await api.executeCodeTool('git_worktree_manager', {
+        session_id: sid.value,
+        approval_id: renameBranchApproval.value.id,
+        cwd: cwd.value,
+        arguments: {
+          action: 'rename_branch',
+          confirm_rename_branch: true,
+          new_name: newName,
+        },
+      })
+      feedback.value = result.summary
+      renameBranchApprovalId.value = null
+      await refreshAll()
+    } catch (err) {
+      feedback.value = err instanceof Error ? err.message : t('context.gitRenameBranchFailed')
+    } finally {
+      operationLoading.value = false
+    }
+  }
+
+  // ---- One-click approve & execute ----
+  // Reduces the "request -> approve -> execute" flow to "request -> approve+execute".
+
+  async function approveAndExecuteIndex(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    // Wait for the approval state to propagate through props.
+    await nextTick()
+    await executeApprovedIndexUpdate()
+  }
+
+  async function approveAndExecuteCommit(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedCommit()
+  }
+
+  async function approveAndExecutePush(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedPush()
+  }
+
+  async function approveAndExecutePull(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedPull()
+  }
+
+  async function approveAndExecuteCheckout(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedCheckout()
+  }
+
+  async function approveAndExecuteCreateBranch(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedCreateBranch()
+  }
+
+  async function approveAndExecuteFetch(
+    approval: ApprovalDto | null,
+    decide: (approval: ApprovalDto, decision: 'approved' | 'rejected') => void,
+  ) {
+    if (!approval || approval.status !== 'pending') return
+    decide(approval, 'approved')
+    await nextTick()
+    await executeApprovedFetch()
+  }
+
   // ---- Utility ----
 
   function approvalStatusLabel(approval: ApprovalDto | null): string {
@@ -722,6 +1138,14 @@ export function useGitOperation(
     pullApprovalId.value = null
     checkoutApprovalId.value = null
     branchApprovalId.value = null
+    fetchApprovalId.value = null
+    mergeApprovalId.value = null
+    rebaseApprovalId.value = null
+    resolveConflictApprovalId.value = null
+    resolveConflictPath.value = null
+    resolveConflictStrategy.value = null
+    deleteBranchApprovalId.value = null
+    renameBranchApprovalId.value = null
   }
 
   // ---- Watch ----
@@ -771,17 +1195,30 @@ export function useGitOperation(
     pullApproval,
     checkoutApproval,
     branchApproval,
+    fetchApproval,
+    mergeApproval,
+    rebaseApproval,
+    resolveConflictApproval,
+    deleteBranchApproval,
+    renameBranchApproval,
     canDecideIndexApproval,
     canDecideCommitApproval,
     canDecidePushApproval,
     canDecidePullApproval,
     canDecideCheckoutApproval,
     canDecideBranchApproval,
+    canDecideFetchApproval,
+    canDecideMergeApproval,
+    canDecideRebaseApproval,
+    canDecideResolveConflictApproval,
+    canDecideDeleteBranchApproval,
+    canDecideRenameBranchApproval,
     // Computed - validation
     canRequestIndexApproval,
     canRequestCommitApproval,
     canRequestPushApproval,
     canRequestPullApproval,
+    canRequestFetchApproval,
     // Actions
     loadStatus,
     loadLog,
@@ -803,6 +1240,26 @@ export function useGitOperation(
     executeApprovedCheckout,
     requestCreateBranchApproval,
     executeApprovedCreateBranch,
+    requestFetchApproval,
+    executeApprovedFetch,
+    requestMergeApproval,
+    executeApprovedMerge,
+    requestRebaseApproval,
+    executeApprovedRebase,
+    requestResolveConflictApproval,
+    executeApprovedResolveConflict,
+    requestDeleteBranchApproval,
+    executeApprovedDeleteBranch,
+    requestRenameBranchApproval,
+    executeApprovedRenameBranch,
+    // One-click approve & execute
+    approveAndExecuteIndex,
+    approveAndExecuteCommit,
+    approveAndExecutePush,
+    approveAndExecutePull,
+    approveAndExecuteCheckout,
+    approveAndExecuteCreateBranch,
+    approveAndExecuteFetch,
     // Utils
     approvalStatusLabel,
     decideGitApproval,

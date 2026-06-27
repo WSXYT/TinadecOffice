@@ -141,6 +141,7 @@ const stubs = {
   GitChangesView: {
     name: 'GitChangesView',
     template: '<div class="stub-git-changes" />',
+    props: ['cwd', 'sessionId', 'statusFiles'],
   },
   GitHistoryView: {
     name: 'GitHistoryView',

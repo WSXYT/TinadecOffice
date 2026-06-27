@@ -62,17 +62,30 @@ const {
   pullApproval,
   checkoutApproval,
   branchApproval,
+  fetchApproval,
+  mergeApproval,
+  rebaseApproval,
+  resolveConflictApproval,
+  deleteBranchApproval,
+  renameBranchApproval,
   canDecideIndexApproval,
   canDecideCommitApproval,
   canDecidePushApproval,
   canDecidePullApproval,
   canDecideCheckoutApproval,
   canDecideBranchApproval,
+  canDecideFetchApproval,
+  canDecideMergeApproval,
+  canDecideRebaseApproval,
+  canDecideResolveConflictApproval,
+  canDecideDeleteBranchApproval,
+  canDecideRenameBranchApproval,
   // Validation
   canRequestIndexApproval,
   canRequestCommitApproval,
   canRequestPushApproval,
   canRequestPullApproval,
+  canRequestFetchApproval,
   // Actions
   loadStatus,
   loadLog,
@@ -92,6 +105,18 @@ const {
   executeApprovedCheckout,
   requestCreateBranchApproval,
   executeApprovedCreateBranch,
+  requestFetchApproval,
+  executeApprovedFetch,
+  requestMergeApproval,
+  executeApprovedMerge,
+  requestRebaseApproval,
+  executeApprovedRebase,
+  requestResolveConflictApproval,
+  executeApprovedResolveConflict,
+  requestDeleteBranchApproval,
+  executeApprovedDeleteBranch,
+  requestRenameBranchApproval,
+  executeApprovedRenameBranch,
   // Utils
   approvalStatusLabel,
   decideGitApproval,
@@ -259,11 +284,13 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           :index-approval="indexApproval"
           :commit-approval="commitApproval"
           :push-approval="pushApproval"
+          :resolve-conflict-approval="resolveConflictApproval"
           :can-request-index-approval="canRequestIndexApproval"
           :can-request-commit-approval="canRequestCommitApproval"
           :can-decide-index-approval="canDecideIndexApproval"
           :can-decide-commit-approval="canDecideCommitApproval"
           :can-decide-push-approval="canDecidePushApproval"
+          :can-decide-resolve-conflict-approval="canDecideResolveConflictApproval"
           :recent-commits="recentCommits"
           @update:commit-message="commitMessage = $event"
           @refresh="loadStatus"
@@ -277,6 +304,8 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           @request-push="requestPushApproval(emitApproval)"
           @execute-push="executeApprovedPush"
           @request-pull="requestPullApproval(emitApproval)"
+          @request-resolve-conflict="(path, strategy) => requestResolveConflictApproval(path, strategy, emitApproval)"
+          @execute-resolve-conflict="executeApprovedResolveConflict"
           @decide-approval="decideApproval"
         />
 
@@ -296,15 +325,37 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           ref="branchViewRef"
           :cwd="currentProjectPath"
           :current-branch="repoSummary.branch"
+          :branches="branches"
           :checkout-approval="checkoutApproval"
           :branch-approval="branchApproval"
+          :fetch-approval="fetchApproval"
+          :delete-branch-approval="deleteBranchApproval"
+          :rename-branch-approval="renameBranchApproval"
+          :merge-approval="mergeApproval"
+          :rebase-approval="rebaseApproval"
           :can-decide-checkout-approval="canDecideCheckoutApproval"
           :can-decide-branch-approval="canDecideBranchApproval"
+          :can-decide-fetch-approval="canDecideFetchApproval"
+          :can-decide-delete-branch-approval="canDecideDeleteBranchApproval"
+          :can-decide-rename-branch-approval="canDecideRenameBranchApproval"
+          :can-decide-merge-approval="canDecideMergeApproval"
+          :can-decide-rebase-approval="canDecideRebaseApproval"
+          :can-request-fetch-approval="canRequestFetchApproval"
           :operation-loading="operationLoading"
           @checkout="requestCheckoutApproval($event, emitApproval)"
           @create-branch="requestCreateBranchApproval($event, emitApproval)"
+          @fetch="requestFetchApproval(emitApproval)"
+          @delete-branch="requestDeleteBranchApproval($event.branch, $event.force, emitApproval)"
+          @rename-branch="requestRenameBranchApproval($event, emitApproval)"
+          @merge-branch="requestMergeApproval($event, emitApproval)"
+          @rebase-branch="requestRebaseApproval($event, emitApproval)"
           @execute-checkout="executeApprovedCheckout"
           @execute-create-branch="executeApprovedCreateBranch"
+          @execute-fetch="executeApprovedFetch"
+          @execute-delete-branch="executeApprovedDeleteBranch"
+          @execute-rename-branch="executeApprovedRenameBranch"
+          @execute-merge="executeApprovedMerge"
+          @execute-rebase="executeApprovedRebase($event)"
           @decide-approval="decideApproval"
         />
       </div>

@@ -2,6 +2,7 @@
 import type { editor } from 'monaco-editor'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Columns2, Rows3 } from '@lucide/vue'
 import { useMonacoDiff } from '@/composables/useMonacoDiff'
 import { parseUnifiedDiff } from '@/gitDiffParser'
 import { detectLanguage, reconstructFromHunks, summarizeEntries, type DiffFileEntry } from './diffUtils'
@@ -59,6 +60,7 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const editorRef = ref<DiffEditor | null>(null)
 const ready = ref(false)
 const fileMenuOpen = ref(false)
+const sideBySide = ref(true)
 let disposed = false
 
 const multiFile = computed(() => Array.isArray(props.files) && props.files.length > 0)
@@ -131,7 +133,9 @@ async function mountEditor() {
     return
   }
   ready.value = false
-  const editor = await createDiffEditor(containerRef.value, original, modified, resolvedLanguage.value)
+  const editor = await createDiffEditor(containerRef.value, original, modified, resolvedLanguage.value, {
+    renderSideBySide: sideBySide.value,
+  })
   if (disposed) {
     disposeDiffEditor(editor)
     return
@@ -145,6 +149,10 @@ function refreshModel() {
   const entry = currentEntry.value
   const { original, modified } = entry ? resolveOriginalModified(entry) : { original: '', modified: '' }
   updateDiffModel(editorRef.value, original, modified, resolvedLanguage.value)
+}
+
+function updateViewMode() {
+  editorRef.value?.updateOptions({ renderSideBySide: sideBySide.value })
 }
 
 function selectFile(path: string) {
@@ -184,6 +192,10 @@ watch(
 
 watch(resolvedLanguage, () => {
   void refreshModel()
+})
+
+watch(sideBySide, () => {
+  updateViewMode()
 })
 </script>
 
@@ -230,6 +242,14 @@ watch(resolvedLanguage, () => {
       </div>
 
       <div class="diff-viewer-actions">
+        <button
+          type="button"
+          class="icon-button diff-viewer-mode"
+          :title="sideBySide ? t('context.gitDiffInlineMode') : t('context.gitDiffSideBySideMode')"
+          @click="sideBySide = !sideBySide"
+        >
+          <component :is="sideBySide ? Rows3 : Columns2" :size="14" />
+        </button>
         <button
           v-if="enableHunkActions"
           type="button"
@@ -402,6 +422,15 @@ watch(resolvedLanguage, () => {
   width: auto;
   padding: 0 10px;
   font-size: 11px;
+}
+
+.diff-viewer-mode {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
 }
 
 .diff-viewer-notice {

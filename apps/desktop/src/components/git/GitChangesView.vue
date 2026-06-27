@@ -22,10 +22,12 @@ import { useI18n } from 'vue-i18n'
 import type { ApprovalDto } from '../../api'
 import {
   type GitStatusFile,
+  type GitDiffSection,
   statusToLabel,
   statusColor,
 } from '../../composables/useGitOperation'
 import { useAiCommitMessage } from '../../composables/useAiCommitMessage'
+import { useAiChangeAnalysis, type AiRiskLevel } from '../../composables/useAiChangeAnalysis'
 import CommitMessageEditor from './CommitMessageEditor.vue'
 import DiffViewer from './DiffViewer.vue'
 import { reconstructFromHunks, type DiffFileEntry } from './diffUtils'
@@ -66,11 +68,13 @@ interface Props {
   indexApproval: ApprovalDto | null
   commitApproval: ApprovalDto | null
   pushApproval: ApprovalDto | null
+  resolveConflictApproval: ApprovalDto | null
   canRequestIndexApproval: boolean
   canRequestCommitApproval: boolean
   canDecideIndexApproval: boolean
   canDecideCommitApproval: boolean
   canDecidePushApproval: boolean
+  canDecideResolveConflictApproval: boolean
   recentCommits: string[]
 }
 
@@ -89,6 +93,8 @@ const emit = defineEmits<{
   'request-push': []
   'execute-push': []
   'request-pull': []
+  'request-resolve-conflict': [path: string, strategy: 'ours' | 'theirs' | 'both']
+  'execute-resolve-conflict': []
   'decide-approval': [approval: ApprovalDto, decision: 'approved' | 'rejected']
 }>()
 
@@ -99,6 +105,21 @@ const showDiffPreview = ref(false)
 const selectedDiffFile = ref<string | null>(null)
 
 const parsedDiff = computed(() => parseUnifiedDiff(props.diffText))
+
+const diffSections = computed<GitDiffSection[]>(() => [
+  {
+    id: 'working-tree',
+    kind: 'working_tree',
+    title: 'Working tree diff',
+    diff: props.diffText,
+    files: props.diffFiles,
+    file_count: props.diffFiles.length,
+    additions: props.diffFiles.reduce((a, f) => a + (f.additions ?? 0), 0),
+    deletions: props.diffFiles.reduce((a, f) => a + (f.deletions ?? 0), 0),
+    notices: [],
+  },
+])
+
 const diffEntries = computed<DiffFileEntry[]>(() => {
   return parsedDiff.value.files.map((file) => {
     const meta = props.diffFiles.find((item) => item.path === file.path)
@@ -136,15 +157,48 @@ const {
 
 const showAiPanel = ref(false)
 
+// ---- AI change analysis ----
+const {
+  analyzing: aiAnalyzing,
+  analysis: aiAnalysis,
+  canAnalyze: canAiAnalyze,
+  analyze: aiAnalyze,
+} = useAiChangeAnalysis(sessionIdRef)
+
+const showAiAnalysis = ref(false)
+
+async function handleAiAnalyze() {
+  showAiAnalysis.value = true
+  await aiAnalyze(props.statusFiles, diffSections.value, props.statusFiles[0]?.path)
+}
+
+function riskLabel(level: AiRiskLevel): string {
+  switch (level) {
+    case 'low': return t('context.gitAiRiskLow')
+    case 'medium': return t('context.gitAiRiskMedium')
+    case 'high': return t('context.gitAiRiskHigh')
+    case 'critical': return t('context.gitAiRiskCritical')
+  }
+}
+
+function riskIcon(level: AiRiskLevel) {
+  switch (level) {
+    case 'low': return CheckCircle2
+    case 'medium':
+    case 'high': return AlertTriangle
+    case 'critical': return ShieldX
+  }
+}
+
 async function handleAiGenerate() {
   showAiPanel.value = true
   // Generate local suggestion first for immediate feedback
-  const local = generateLocalSuggestion(props.statusFiles, [])
+  const local = generateLocalSuggestion(props.statusFiles, diffSections.value)
   if (local) {
     emit('update:commitMessage', local.fullMessage)
   }
-  // Then try AI generation
-  await aiGenerate(props.statusFiles, [], props.statusFiles[0]?.path)
+  // Then try AI generation with diff context
+  await aiGenerate(props.statusFiles, diffSections.value, props.statusFiles[0]?.path)
   if (aiSuggestion.value) {
     emit('update:commitMessage', aiSuggestion.value.fullMessage)
   }
@@ -216,6 +270,15 @@ function statusColorClass(status?: string) {
 const filesExpanded = ref(true)
 const commitExpanded = ref(true)
 const pushExpanded = ref(true)
+
+// ---- Conflict handling ----
+const conflictedFiles = computed(() => props.statusFiles.filter((f) => f.is_conflicted))
+const hasConflicts = computed(() => conflictedFiles.value.length > 0)
+const sortedStatusFiles = computed(() => {
+  const conflicts = props.statusFiles.filter((f) => f.is_conflicted)
+  const others = props.statusFiles.filter((f) => !f.is_conflicted)
+  return [...conflicts, ...others]
+})
 </script>
 
 <template>
@@ -254,25 +317,85 @@ const pushExpanded = ref(true)
       </button>
 
       <div v-show="filesExpanded" class="git-section-body">
+        <div v-if="hasConflicts" class="git-conflict-banner">
+          <AlertTriangle :size="14" />
+          <span>{{ conflictedFiles.length }} file{{ conflictedFiles.length === 1 ? '' : 's' }} with merge conflicts require resolution.</span>
+        </div>
         <div v-if="statusFiles.length === 0" class="git-empty-state">
           {{ t('context.gitNoChanges') }}
         </div>
         <div v-else class="git-file-list">
-          <label
-            v-for="file in statusFiles"
+          <div
+            v-for="file in sortedStatusFiles"
             :key="file.path"
             class="git-file-row"
             :class="statusColorClass(file.status ?? file.unstaged_status)"
           >
-            <input
-              type="checkbox"
-              :checked="selectedPaths.has(file.path)"
-              @change="emit('toggle-path', file.path)"
-            />
-            <component :is="statusIcon(file.status ?? file.unstaged_status)" :size="13" class="git-file-icon" />
-            <span class="git-file-path" :title="file.path">{{ file.path }}</span>
-            <span class="git-file-status-badge">{{ statusToLabel(file.status ?? file.unstaged_status) }}</span>
-          </label>
+            <label class="git-file-row-main">
+              <input
+                type="checkbox"
+                :checked="selectedPaths.has(file.path)"
+                @change="emit('toggle-path', file.path)"
+              />
+              <component :is="statusIcon(file.status ?? file.unstaged_status)" :size="13" class="git-file-icon" />
+              <span class="git-file-path" :title="file.path">{{ file.path }}</span>
+              <span class="git-file-status-badge">{{ statusToLabel(file.status ?? file.unstaged_status) }}</span>
+            </label>
+            <div v-if="file.is_conflicted" class="git-conflict-actions">
+              <button
+                class="git-conflict-btn"
+                :disabled="operationLoading"
+                :title="t('context.gitConflictOurs')"
+                @click="emit('request-resolve-conflict', file.path, 'ours')"
+              >
+                {{ t('context.gitConflictOurs') }}
+              </button>
+              <button
+                class="git-conflict-btn"
+                :disabled="operationLoading"
+                :title="t('context.gitConflictTheirs')"
+                @click="emit('request-resolve-conflict', file.path, 'theirs')"
+              >
+                {{ t('context.gitConflictTheirs') }}
+              </button>
+              <button
+                class="git-conflict-btn"
+                :disabled="operationLoading"
+                :title="t('context.gitConflictBoth')"
+                @click="emit('request-resolve-conflict', file.path, 'both')"
+              >
+                {{ t('context.gitConflictBoth') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conflict resolution approval -->
+        <div v-if="resolveConflictApproval" class="git-conflict-approval">
+          <div class="git-conflict-approval-info">
+            <ShieldCheck :size="13" />
+            <span>{{ resolveConflictApproval.summary }}</span>
+            <span class="git-conflict-approval-status">{{ resolveConflictApproval.status }}</span>
+          </div>
+          <div class="git-conflict-approval-actions">
+            <div v-if="canDecideResolveConflictApproval" class="git-approval-decide">
+              <button class="icon-button approve" :title="t('approval.approve')" @click="emit('decide-approval', resolveConflictApproval!, 'approved')">
+                <CheckCircle2 :size="14" />
+              </button>
+              <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', resolveConflictApproval!, 'rejected')">
+                <ShieldX :size="14" />
+              </button>
+            </div>
+            <button
+              v-if="resolveConflictApproval.status === 'approved'"
+              class="secondary-button git-action-btn git-execute-btn"
+              :disabled="operationLoading"
+              @click="emit('execute-resolve-conflict')"
+            >
+              <CheckCircle2 :size="13" />
+              <span>{{ t('context.gitExecuteResolveConflict') }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Diff preview toggle -->
@@ -330,6 +453,72 @@ const pushExpanded = ref(true)
         <button class="icon-button reject" :title="t('approval.reject')" @click="emit('decide-approval', indexApproval!, 'rejected')">
           <ShieldX :size="14" />
         </button>
+      </div>
+      <button
+        v-if="canDecideIndexApproval"
+        class="secondary-button git-action-btn git-execute-btn"
+        :disabled="operationLoading"
+        @click="emit('decide-approval', indexApproval!, 'approved'); $nextTick(() => emit('execute-index'))"
+      >
+        <CheckCircle2 :size="13" />
+        <span>{{ t('context.gitApproveAndExecute') }}</span>
+      </button>
+    </div>
+
+    <!-- AI change analysis section -->
+    <div class="git-section">
+      <button class="git-section-header" @click="showAiAnalysis = !showAiAnalysis">
+        <component :is="showAiAnalysis ? ChevronDown : ChevronRight" :size="14" />
+        <Sparkles :size="14" />
+        <span>{{ t('context.gitAiAnalysisTitle') }}</span>
+      </button>
+
+      <div v-show="showAiAnalysis" class="git-section-body">
+        <button
+          class="secondary-button git-ai-btn"
+          :disabled="!canAiAnalyze || statusFiles.length === 0"
+          @click="handleAiAnalyze"
+        >
+          <component :is="aiAnalyzing ? Loader2 : Sparkles" :size="13" :class="{ spinning: aiAnalyzing }" />
+          <span>{{ aiAnalyzing ? t('context.gitAiAnalyzing') : t('context.gitAiAnalyze') }}</span>
+        </button>
+
+        <div v-if="aiAnalysis" class="git-ai-analysis">
+          <div class="git-ai-analysis-header" :class="`risk-${aiAnalysis.riskLevel}`">
+            <component :is="riskIcon(aiAnalysis.riskLevel)" :size="16" />
+            <div class="git-ai-analysis-title">
+              <strong>{{ riskLabel(aiAnalysis.riskLevel) }}</strong>
+              <small>{{ aiAnalysis.summary }}</small>
+            </div>
+            <div class="git-ai-analysis-score">
+              <span>{{ t('context.gitAiRiskScore') }}</span>
+              <strong>{{ aiAnalysis.riskScore }}</strong>
+            </div>
+          </div>
+
+          <div v-if="aiAnalysis.affectedAreas.length > 0" class="git-ai-analysis-block">
+            <small>{{ t('context.gitAiAffectedAreas') }}</small>
+            <div class="git-ai-tags">
+              <span v-for="area in aiAnalysis.affectedAreas" :key="area" class="git-ai-tag">{{ area }}</span>
+            </div>
+          </div>
+
+          <div v-if="aiAnalysis.concerns.length > 0" class="git-ai-analysis-block">
+            <small>{{ t('context.gitAiConcerns') }}</small>
+            <ul class="git-ai-list">
+              <li v-for="(concern, idx) in aiAnalysis.concerns" :key="idx" :class="`severity-${concern.severity}`">
+                <strong>{{ concern.category }}:</strong> {{ concern.description }}
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="aiAnalysis.testSuggestions.length > 0" class="git-ai-analysis-block">
+            <small>{{ t('context.gitAiTestSuggestions') }}</small>
+            <ul class="git-ai-list">
+              <li v-for="(suggestion, idx) in aiAnalysis.testSuggestions" :key="idx">{{ suggestion }}</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -397,6 +586,15 @@ const pushExpanded = ref(true)
             <ShieldX :size="14" />
           </button>
         </div>
+        <button
+          v-if="canDecideCommitApproval"
+          class="secondary-button git-action-btn git-execute-btn"
+          :disabled="operationLoading"
+          @click="emit('decide-approval', commitApproval!, 'approved'); $nextTick(() => emit('execute-commit'))"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitApproveAndExecute') }}</span>
+        </button>
       </div>
     </div>
 
@@ -464,6 +662,15 @@ const pushExpanded = ref(true)
             <ShieldX :size="14" />
           </button>
         </div>
+        <button
+          v-if="canDecidePushApproval"
+          class="secondary-button git-action-btn git-execute-btn"
+          :disabled="operationLoading"
+          @click="emit('decide-approval', pushApproval!, 'approved'); $nextTick(() => emit('execute-push'))"
+        >
+          <CheckCircle2 :size="13" />
+          <span>{{ t('context.gitApproveAndExecute') }}</span>
+        </button>
       </div>
     </div>
 
@@ -575,16 +782,88 @@ const pushExpanded = ref(true)
 
 .git-file-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 5px 8px;
-  cursor: pointer;
   border-radius: 4px;
   transition: background 0.1s;
 }
 
 .git-file-row:hover {
   background: var(--bg-hover);
+}
+
+.git-file-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.git-conflict-actions {
+  display: flex;
+  gap: 4px;
+  padding-left: 26px;
+}
+
+.git-conflict-btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.git-conflict-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--bg-selected-outline);
+}
+
+.git-conflict-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-conflict-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+}
+
+.git-conflict-approval-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.git-conflict-approval-status {
+  margin-left: auto;
+  padding: 1px 5px;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.git-conflict-approval-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .git-file-icon {
@@ -631,6 +910,18 @@ const pushExpanded = ref(true)
 
 .status-conflict .git-file-icon { color: #f85149; }
 .status-conflict .git-file-status-badge { color: #f85149; background: rgba(248, 81, 73, 0.2); }
+
+.git-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  color: var(--text-reject, #f85149);
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: 6px;
+  font-size: 12px;
+}
 
 .git-diff-toggle {
   display: flex;
@@ -816,5 +1107,130 @@ const pushExpanded = ref(true)
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ---- AI change analysis ---- */
+.git-ai-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+}
+
+.git-ai-analysis-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.git-ai-analysis-header.risk-low {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.git-ai-analysis-header.risk-medium {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.git-ai-analysis-header.risk-high {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.git-ai-analysis-header.risk-critical {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.18);
+}
+
+.git-ai-analysis-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.git-ai-analysis-title strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.git-ai-analysis-title small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.git-ai-analysis-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.git-ai-analysis-score span {
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.git-ai-analysis-score strong {
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.git-ai-analysis-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.git-ai-analysis-block > small {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.git-ai-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.git-ai-tag {
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.git-ai-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.git-ai-list li {
+  margin-bottom: 3px;
+}
+
+.git-ai-list .severity-medium,
+.git-ai-list .severity-high {
+  color: #d29922;
+}
+
+.git-ai-list .severity-critical {
+  color: #f85149;
 }
 </style>
