@@ -9,7 +9,7 @@ namespace TinadecTools.Tools.FileRW;
 /// 用于生成逐行双字母HASH或全文件4字母HASH的工具类
 /// </summary>
 
-public static class FileHashing
+internal static class FileHashing
 {
     private const string nibble_string = "ZPMQVRWSNKTXJBYH";
 
