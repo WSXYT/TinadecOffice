@@ -37,7 +37,9 @@ internal class FileAccessor : IDisposable
     private readonly string filepath;
     private readonly SafeFileHandle handle;
     private static readonly Logger logger = LogManager.GetCurrentClassLogger();
-    private static readonly UTF8Encoding utf8NoBom = new(false);
+    private static readonly UTF8Encoding utf8_no_bom = new(false);
+    private const int stream_buffer_size = 128 * 1024;
+    private const int text_buffer_size = 16 * 1024;
 
     static FileAccessor()
     {
@@ -55,115 +57,152 @@ internal class FileAccessor : IDisposable
             FileShare.ReadWrite | FileShare.Delete, 1024,
             FileOptions.Asynchronous);
         handle = file.SafeFileHandle;
-        normalizeEncodingToUtf8();
-        normalizeLineEndings();
+        normalizeTextFile();
         buildIndex();
     }
 
     /// <summary>
-    /// 打开文件时检测全文编码，并静默保存为 UTF-8（无 BOM）。
+    /// 打开文件时流式检测全文编码，并静默保存为 UTF-8（无 BOM）+ LF。
     /// </summary>
-    private void normalizeEncodingToUtf8()
+    private void normalizeTextFile()
     {
         if (file.Length == 0)
             return;
 
-        if (file.Length > int.MaxValue)
-            throw new IOException($"文件 {filepath} 过大，无法一次性转换为 UTF-8");
-
         file.Seek(0, SeekOrigin.Begin);
+        var detection = CharsetDetector.DetectFromStream(file);
+        var detected = detection.Detected;
+        var encoding = detected?.Encoding ?? Encoding.UTF8;
 
-        var raw = new byte[file.Length];
-        var offset = 0;
-        while (offset < raw.Length)
-        {
-            var read = file.Read(raw, offset, raw.Length - offset);
-            if (read == 0)
-                break;
-
-            offset += read;
-        }
-
-        if (offset != raw.Length)
-            Array.Resize(ref raw, offset);
-
-        var detection = CharsetDetector.DetectFromBytes(raw);
-        var encoding = detection.Detected?.Encoding ?? Encoding.UTF8;
-        var text = encoding.GetString(raw);
-        if (text.Length > 0 && text[0] == '\uFEFF')
-            text = text[1..];
-
-        var utf8Bytes = utf8NoBom.GetBytes(text);
-        if (raw.AsSpan().SequenceEqual(utf8Bytes))
+        if (isUtf8Compatible(encoding) &&
+            detected?.HasBOM != true &&
+            !containsCarriageReturn())
         {
             file.Seek(0, SeekOrigin.Begin);
             return;
         }
 
-        file.SetLength(0);
-        file.Seek(0, SeekOrigin.Begin);
-        file.Write(utf8Bytes, 0, utf8Bytes.Length);
-        file.Flush();
-        file.Seek(0, SeekOrigin.Begin);
+        var tempPath = getTempPath();
+        try
+        {
+            writeNormalizedTempFile(tempPath, encoding);
+
+            file.SetLength(0);
+            file.Seek(0, SeekOrigin.Begin);
+            using var tempInput = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                stream_buffer_size, FileOptions.SequentialScan);
+            tempInput.CopyTo(file, stream_buffer_size);
+            file.Flush();
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch (IOException ex)
+            {
+                logger.Warn(ex, $"删除临时文件 {tempPath} 失败");
+            }
+
+            file.Seek(0, SeekOrigin.Begin);
+        }
     }
 
-    /// <summary>
-    /// 打开文件时统一换行符为 LF，避免后续按字节偏移读写时混用不同换行宽度。
-    /// </summary>
-    private void normalizeLineEndings()
+    private static bool isUtf8Compatible(Encoding encoding)
     {
-        if (file.Length == 0)
-            return;
+        return encoding.CodePage == Encoding.UTF8.CodePage ||
+               encoding.CodePage == Encoding.ASCII.CodePage;
+    }
 
+    private string getTempPath()
+    {
+        var directory = Path.GetDirectoryName(filepath);
+        var filename = Path.GetFileName(filepath);
+        return Path.Combine(
+            string.IsNullOrEmpty(directory) ? "." : directory,
+            $".{filename}.{Guid.NewGuid():N}.tmp");
+    }
+
+    private bool containsCarriageReturn()
+    {
         file.Seek(0, SeekOrigin.Begin);
 
-        using var normalized = new MemoryStream();
-        var changed = false;
+        var buffer = ArrayPool<byte>.Shared.Rent(stream_buffer_size);
+        try
+        {
+            while (true)
+            {
+                var bytesRead = file.Read(buffer, 0, buffer.Length);
+                if (bytesRead == 0)
+                    return false;
+
+                for (var i = 0; i < bytesRead; i++)
+                    if (buffer[i] == '\r')
+                        return true;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            file.Seek(0, SeekOrigin.Begin);
+        }
+    }
+
+    private void writeNormalizedTempFile(string tempPath, Encoding encoding)
+    {
+        file.Seek(0, SeekOrigin.Begin);
+
+        using var reader = new StreamReader(file, encoding, false, stream_buffer_size, true);
+        using var tempOutput = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            stream_buffer_size, FileOptions.SequentialScan);
+        using var writer = new StreamWriter(tempOutput, utf8_no_bom, stream_buffer_size);
+        var buffer = ArrayPool<char>.Shared.Rent(text_buffer_size);
+        var firstChar = true;
         var previousWasCr = false;
 
-        while (true)
+        try
         {
-            var b = file.ReadByte();
-            if (b == -1)
-                break;
-
-            if (previousWasCr)
+            while (true)
             {
-                normalized.WriteByte((byte)'\n');
-                if (b != '\n')
-                    normalized.WriteByte((byte)b);
+                var charsRead = reader.Read(buffer, 0, buffer.Length);
+                if (charsRead == 0)
+                    break;
 
-                previousWasCr = false;
-                continue;
+                for (var i = 0; i < charsRead; i++)
+                {
+                    var ch = buffer[i];
+
+                    if (firstChar)
+                    {
+                        firstChar = false;
+                        if (ch == '\uFEFF')
+                            continue;
+                    }
+
+                    if (previousWasCr)
+                    {
+                        previousWasCr = false;
+                        if (ch == '\n')
+                            continue;
+                    }
+
+                    if (ch == '\r')
+                    {
+                        writer.Write('\n');
+                        previousWasCr = true;
+                        continue;
+                    }
+
+                    writer.Write(ch);
+                }
             }
-
-            if (b == '\r')
-            {
-                previousWasCr = true;
-                changed = true;
-                continue;
-            }
-
-            normalized.WriteByte((byte)b);
         }
-
-        if (previousWasCr)
+        finally
         {
-            normalized.WriteByte((byte)'\n');
+            ArrayPool<char>.Shared.Return(buffer);
         }
-
-        if (!changed)
-        {
-            file.Seek(0, SeekOrigin.Begin);
-            return;
-        }
-
-        file.SetLength(0);
-        file.Seek(0, SeekOrigin.Begin);
-        normalized.Position = 0;
-        normalized.CopyTo(file);
-        file.Flush();
-        file.Seek(0, SeekOrigin.Begin);
     }
 
     /// <summary>
