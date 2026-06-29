@@ -18,6 +18,7 @@ while (true)
     {
         try
         {
+            // TODO: .NET AOT 兼容
             var req = JsonSerializer.Deserialize<ToolCallRequest<JsonElement>>(line)!;
             // TODO：搞定中间的东西
             var res = new JsonElement();
