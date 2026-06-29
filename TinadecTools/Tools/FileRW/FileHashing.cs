@@ -1,19 +1,47 @@
-﻿namespace TinadecTools.Tools.FileRW;
+﻿using System.Diagnostics;
+using System.IO.Hashing;
+using System.Text;
+using System.Text.RegularExpressions;
 
+namespace TinadecTools.Tools.FileRW;
 
+/// <summary>
+/// 用于生成逐行双字母HASH或全文件4字母HASH的工具类
+/// </summary>
 
 public static class FileHashing
 {
-    //来自 Github 上的 oh-my-openagent 的一些魔数
-    public const uint PRIME32_1 = 0x9e3779b1;
-    public const uint PRIME32_2 = 0x85ebca77;
-    public const uint PRIME32_3 = 0xc2b2ae3d;
-    public const uint PRIME32_4 = 0x27d4eb2f;
-    public const uint PRIME32_5 = 0x165667b1;
+    private const string nibble_string = "ZPMQVRWSNKTXJBYH";
 
-    public static uint RotateLeft32(uint value, int bits)
+    private static string getHashLineDict(int index)
     {
-        bits %= 32;
-        return (value << bits) | (value >> (32 - bits));
+        int high = index >> 4;
+        int low = index & 0x0F;
+        return nibble_string[high].ToString() + nibble_string[low];
+    }
+
+    /// <summary>
+    /// 用于计算单行的哈希
+    /// </summary>
+    /// <param name="line">
+    /// 这一行的内容（**必须**是UTF-8编码）
+    /// </param>
+    /// <param name="linenumber">
+    /// 行号（可选）
+    /// </param>
+    /// <returns>
+    /// 双字符ID
+    /// </returns>
+    public static string ComputeLineHash(string line, int? linenumber)
+    {
+        string normalized = line.Replace("\r", "").TrimEnd();
+        bool match = Regex.IsMatch(normalized, @"/[\p{L}\p{N}]/u"); // 是不是有字母或者数字
+        if (!match && (linenumber is null))
+            throw new ArgumentNullException(nameof(linenumber));
+
+        Debug.Assert(linenumber != null, nameof(linenumber) + " != null");
+        int seed = match ? 0 : linenumber.Value;
+        var hash = (int)XxHash32.HashToUInt32(Encoding.UTF8.GetBytes(line), seed);
+        return getHashLineDict(hash % 256);
     }
 }
