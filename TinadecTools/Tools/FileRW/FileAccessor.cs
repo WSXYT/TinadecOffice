@@ -210,24 +210,43 @@ internal class FileAccessor : IDisposable
     /// </summary>
     private void buildIndex()
     {
-        long currentOffset = 0;
-        long lineStart = 0;
+        index.Clear();
+        file.Seek(0, SeekOrigin.Begin);
 
-        while (true)
+        if (file.Length == 0)
+            return;
+
+        var buffer = ArrayPool<byte>.Shared.Rent(stream_buffer_size);
+        try
         {
-            var b = file.ReadByte();
-            if (b == -1) break;
+            long currentOffset = 0;
+            long lineStart = 0;
 
-            currentOffset++;
-
-            if (b == '\n')
+            while (true)
             {
-                index.Add(new LineSpan(lineStart, currentOffset - 1, currentOffset));
-                lineStart = currentOffset;
-            }
-        }
+                var bytesRead = file.Read(buffer, 0, buffer.Length);
+                if (bytesRead == 0)
+                    break;
 
-        if (lineStart < file.Length) index.Add(new LineSpan(lineStart, file.Length, file.Length));
+                for (var i = 0; i < bytesRead; i++)
+                {
+                    currentOffset++;
+                    if (buffer[i] == '\n')
+                    {
+                        index.Add(new LineSpan(lineStart, currentOffset - 1, currentOffset));
+                        lineStart = currentOffset;
+                    }
+                }
+            }
+
+            if (lineStart < file.Length)
+                index.Add(new LineSpan(lineStart, file.Length, file.Length));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            file.Seek(0, SeekOrigin.Begin);
+        }
     }
 
     /// <summary>
@@ -305,13 +324,15 @@ internal class FileAccessor : IDisposable
     }
 
     /// <summary>
-    /// 替换单个连续范围的行（原地替换，要求字节数匹配）
+    /// 替换单个连续范围的行（写入后全量重建索引）
     /// </summary>
     /// <param name="startLine">起始行号（包括）</param>
     /// <param name="endLine">结束行号（包括）</param>
-    /// <param name="content">新内容，必须包含范围内所有行</param>
-    public async Task<bool> ReplaceLines(int startLine, int endLine, List<LineContent> content)
+    /// <param name="content">新内容，按行传入且不包含换行符</param>
+    public async Task<bool> ReplaceLines(int startLine, int endLine, IReadOnlyList<string> content)
     {
+        ArgumentNullException.ThrowIfNull(content);
+
         // 验证范围
         if (startLine < 0 || startLine >= index.Count)
             throw new ArgumentOutOfRangeException(nameof(startLine), $"起始行号 {startLine} 超出范围 [0, {index.Count})");
@@ -326,75 +347,37 @@ internal class FileAccessor : IDisposable
         if (content.Count != expectedCount)
             throw new ArgumentException($"内容行数 {content.Count} 与范围行数 {expectedCount} 不匹配");
 
-        // 验证内容中的行号是否连续且匹配范围
-        if (content.Any(ct => ct.LineNumber < startLine || ct.LineNumber > endLine))
-            throw new ArgumentOutOfRangeException(nameof(content), "内容中的行号超出指定范围");
-
-        // 按行号排序（防止乱序）
-        var sortedContent = content.OrderBy(ct => ct.LineNumber).ToList();
-
-        // 验证行号连续性
-        for (var i = 0; i < sortedContent.Count; i++)
-            if (sortedContent[i].LineNumber != startLine + i)
-                throw new ArgumentException($"内容行号不连续或不匹配，预期 {startLine + i}，实际 {sortedContent[i].LineNumber}");
-
-        // 检查：换行符！如果有就REJECT
-        var bad = content
-            .Where(c => c.Content.Contains('\n') || c.Content.Contains('\r'))
-            .Select(c => c.LineNumber)
-            .ToList();
-
-        if (bad.Count > 0)
-            throw new ArgumentException(
-                $"Line(s) [{string.Join(", ", bad)}] contain newlines",
-                nameof(content));
+        for (var i = 0; i < content.Count; i++)
+        {
+            var line = content[i];
+            if (line.Contains('\n') || line.Contains('\r'))
+                throw new ArgumentException($"内容行 {startLine + i} 包含换行符", nameof(content));
+        }
 
         var rangeStart = index[startLine].LineStart;
         var rangeEndExclusive = index[endLine].NextStart;
         var currentLength = rangeEndExclusive - rangeStart;
         var hasTrailingNewline = index[endLine].NextStart > index[endLine].LineEnd;
 
-        var replacementLineLengths = sortedContent
-            .Select(ct => Encoding.UTF8.GetByteCount(ct.Content))
-            .ToArray();
-        var replacementLength = replacementLineLengths.Sum()
-            + Math.Max(0, sortedContent.Count - 1)
+        var replacementLength = content
+            .Sum(line => Encoding.UTF8.GetByteCount(line))
+            + Math.Max(0, content.Count - 1)
             + (hasTrailingNewline ? 1 : 0);
 
-        var rebuiltIndex = new List<LineSpan>(sortedContent.Count);
-        long nextLineStart = rangeStart;
-        for (var i = 0; i < sortedContent.Count; i++)
+        if (replacementLength == currentLength)
         {
-            var lineStart = nextLineStart;
-            var lineEnd = lineStart + replacementLineLengths[i];
-            var lineNextStart = lineEnd;
-
-            if (i < sortedContent.Count - 1 || hasTrailingNewline)
-                lineNextStart++;
-
-            rebuiltIndex.Add(new LineSpan(lineStart, lineEnd, lineNextStart));
-            nextLineStart = lineNextStart;
-        }
-
-        var delta = replacementLength - currentLength;
-
-        if (delta == 0)
-        {
-            await writeReplacementInPlaceAsync(rangeStart, sortedContent, hasTrailingNewline);
+            await writeReplacementInPlaceAsync(rangeStart, content, hasTrailingNewline);
         }
         else
         {
-            await rewriteFileWithReplacementAsync(rangeStart, rangeEndExclusive, sortedContent, hasTrailingNewline);
-            applyIndexDelta(startLine, endLine, rebuiltIndex, delta);
+            await rewriteFileWithReplacementAsync(rangeStart, rangeEndExclusive, content, hasTrailingNewline);
         }
 
-        if (delta == 0)
-            applyIndexDelta(startLine, endLine, rebuiltIndex, 0);
-
+        buildIndex();
         return true;
     }
 
-    private async Task writeReplacementInPlaceAsync(long offset, IReadOnlyList<LineContent> content, bool hasTrailingNewline)
+    private async Task writeReplacementInPlaceAsync(long offset, IReadOnlyList<string> content, bool hasTrailingNewline)
     {
         file.Seek(offset, SeekOrigin.Begin);
         await using var writer = new StreamWriter(file, utf8_no_bom, stream_buffer_size, leaveOpen: true);
@@ -403,7 +386,7 @@ internal class FileAccessor : IDisposable
         file.Seek(0, SeekOrigin.End);
     }
 
-    private async Task rewriteFileWithReplacementAsync(long rangeStart, long rangeEndExclusive, IReadOnlyList<LineContent> content, bool hasTrailingNewline)
+    private async Task rewriteFileWithReplacementAsync(long rangeStart, long rangeEndExclusive, IReadOnlyList<string> content, bool hasTrailingNewline)
     {
         var originalLength = file.Length;
         var tempPath = getTempPath();
@@ -446,11 +429,11 @@ internal class FileAccessor : IDisposable
         }
     }
 
-    private async Task writeReplacementSectionAsync(StreamWriter writer, IReadOnlyList<LineContent> content, bool hasTrailingNewline)
+    private async Task writeReplacementSectionAsync(StreamWriter writer, IReadOnlyList<string> content, bool hasTrailingNewline)
     {
         for (var i = 0; i < content.Count; i++)
         {
-            await writer.WriteAsync(content[i].Content);
+            await writer.WriteAsync(content[i]);
 
             if (i < content.Count - 1 || hasTrailingNewline)
                 await writer.WriteAsync("\n");
@@ -483,24 +466,6 @@ internal class FileAccessor : IDisposable
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
-        }
-    }
-
-    private void applyIndexDelta(int startLine, int endLine, List<LineSpan> rebuiltIndex, long delta)
-    {
-        for (var i = startLine; i <= endLine; i++)
-            index[i] = rebuiltIndex[i - startLine];
-
-        if (delta == 0)
-            return;
-
-        for (var i = endLine + 1; i < index.Count; i++)
-        {
-            var span = index[i];
-            index[i] = new LineSpan(
-                span.LineStart + delta,
-                span.LineEnd + delta,
-                span.NextStart + delta);
         }
     }
 
