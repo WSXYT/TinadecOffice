@@ -72,7 +72,7 @@ public sealed class ToolFunctionGenerator : IIncrementalGenerator
 
                 var containingType = method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 var contextType = $"{method.ContainingType.ContainingNamespace.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}.{method.ContainingType.Name}JsonContext";
-                var contextVar = $"{method.ContainingType.Name.ToLowerInvariant()}Json";
+                var contextVar = $"{method.ContainingType.Name.ToLowerInvariant()}_{method.Name.ToLowerInvariant()}Json";
 
                 source.AppendLine($"""        var {contextVar} = new {contextType}();""");
                 source.AppendLine($"""        ToolRegistry.Register<{argsType}, {resultType}>("{escape(toolId!)}", {containingType}.{method.Name}, (JsonTypeInfo<{argsType}>) {contextVar}.GetTypeInfo(typeof({argsType}))!, (JsonTypeInfo<{resultType}>) {contextVar}.GetTypeInfo(typeof({resultType}))!);""");

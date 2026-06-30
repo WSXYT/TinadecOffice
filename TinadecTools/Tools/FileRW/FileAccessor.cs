@@ -43,6 +43,8 @@ internal class FileAccessor : IDisposable
 
     public int LineCount => _index.Count;
 
+    public long Length => _file.Length;
+
     static FileAccessor()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -323,6 +325,25 @@ internal class FileAccessor : IDisposable
         }
 
         return contents;
+    }
+
+    public async Task<string> ComputeFileHashAsync(CancellationToken cancellationToken = default)
+    {
+        if (_file.Length > int.MaxValue)
+            throw new InvalidOperationException($"文件 {_filepath} 太大，无法计算内存内哈希");
+
+        var bytes = new byte[(int)_file.Length];
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            var bytesRead = await RandomAccess.ReadAsync(_handle, bytes.AsMemory(offset), offset, cancellationToken);
+            if (bytesRead == 0)
+                break;
+
+            offset += bytesRead;
+        }
+
+        return FileHashing.ComputeFileHash(bytes.AsSpan(0, offset));
     }
 
     /// <summary>

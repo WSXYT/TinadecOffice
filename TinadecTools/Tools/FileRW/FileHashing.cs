@@ -19,6 +19,11 @@ internal static class FileHashing
         return NibbleString[high].ToString() + NibbleString[low];
     }
 
+    private static string GetHashFileDict(int index)
+    {
+        return GetHashLineDict((index >> 8) & 0xFF) + GetHashLineDict(index & 0xFF);
+    }
+
     /// <summary>
     /// 用于计算单行的哈希
     /// </summary>
@@ -44,5 +49,11 @@ internal static class FileHashing
         var hash = XxHash32.HashToUInt32(Encoding.UTF8.GetBytes(line), linenumber.GetValueOrDefault(0));
         // var hash = (int)XxHash32.HashToUInt32(Encoding.UTF8.GetBytes(line), seed);
         return GetHashLineDict((int)(hash & 0xFF));
+    }
+
+    public static string ComputeFileHash(ReadOnlySpan<byte> content)
+    {
+        var hash = XxHash32.HashToUInt32(content);
+        return GetHashFileDict((int)(hash & 0xFFFF));
     }
 }

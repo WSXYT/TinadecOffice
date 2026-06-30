@@ -1,6 +1,4 @@
-using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
-using AsyncLocks;
 using NLog;
 using TinadecTools.Abstractions;
 
@@ -33,7 +31,7 @@ public sealed class ExtendedLineContent
     public ExtendedLineContent(LineContent lineContent)
     {
         Content = lineContent;
-        LineHash = lineContent.LineNumber.ToString() +
+        LineHash = lineContent.LineNumber + "|" +
                    FileHashing.ComputeLineHash(lineContent.Content, lineContent.LineNumber);
     }
 }
@@ -42,6 +40,7 @@ public sealed class NormalFileReadResponse
 {
     [JsonPropertyName("success")] public bool Success { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("file_hash")] public string FileHash { get; set; } = string.Empty;
     [JsonPropertyName("all_contents")] public List<ExtendedLineContent> AllContents { get; set; } = new();
 }
 
@@ -52,22 +51,10 @@ public sealed class NormalFileReadResponse
 [JsonSerializable(typeof(NormalFileReadResponse))]
 internal partial class FileReaderJsonContext : JsonSerializerContext;
 
-internal class FileSlot(string path)
-{
-    public FileAccessor File = new(path);
-    public AsyncReaderWriterLock RwLock = new();
-}
-
 public static class FileReader
 {
-    private const int MaxSentinelReadLines = 150;
-    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
-    private static readonly ConcurrentDictionary<string, FileSlot> Locks = new();
-
-    private static FileSlot GetFileHandle(string path)
-    {
-        return Locks.GetOrAdd(path, p => new FileSlot(p));
-    }
+    private const int max_sentinel_read_lines = 150;
+    private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 
     [ToolFunction("read_file")]
     public static async ValueTask<NormalFileReadResponse> HandleAsync(
@@ -76,16 +63,17 @@ public static class FileReader
     {
         try
         {
-            var path = ResolvePath(args.FilePath);
-            var (startLine, endLine) = ResolveReadRange(args.StartRow, args.EndRow);
-            var slot = GetFileHandle(path);
+            var path = FileToolRuntime.ResolvePath(args.FilePath);
+            var (startLine, endLine) = resolveReadRange(args.StartRow, args.EndRow);
+            var slot = FileToolRuntime.GetFileHandle(path);
 
             using (await slot.RwLock.ReadLockAsync(cancellationToken).ConfigureAwait(false))
             {
+                var fileHash = await slot.File.ComputeFileHashAsync(cancellationToken).ConfigureAwait(false);
                 if (slot.File.LineCount == 0 || startLine > slot.File.LineCount)
                 {
-                    Logger.Debug("read_file读取{path}的{startRow}-{endRow}行，共0行", path, startLine, endLine);
-                    return new NormalFileReadResponse { Success = true };
+                    logger.Debug("read_file读取{path}的{startRow}-{endRow}行，共0行", path, startLine, endLine);
+                    return new NormalFileReadResponse { Success = true, FileHash = fileHash };
                 }
 
                 var effectiveEndLine = Math.Min(endLine, slot.File.LineCount);
@@ -97,17 +85,18 @@ public static class FileReader
                     .Select(line => new ExtendedLineContent(line))
                     .ToList();
 
-                Logger.Debug("read_file读取{path}的{startRow}-{endRow}行，共{count}行", path, startLine, effectiveEndLine, contents.Count);
+                logger.Debug("read_file读取{path}的{startRow}-{endRow}行，共{count}行", path, startLine, effectiveEndLine, contents.Count);
                 return new NormalFileReadResponse
                 {
                     Success = true,
+                    FileHash = fileHash,
                     AllContents = contents
                 };
             }
         }
         catch (OperationCanceledException ex)
         {
-            Logger.Warn(ex, "read_file被取消，文件为{path}", args.FilePath);
+            logger.Warn(ex, "read_file被取消，文件为{path}", args.FilePath);
             return new NormalFileReadResponse
             {
                 Success = false,
@@ -116,7 +105,7 @@ public static class FileReader
         }
         catch (Exception ex)
         {
-            Logger.Warn(ex, "read_file失败，文件为{path}，范围为{startRow}-{endRow}", args.FilePath, args.StartRow, args.EndRow);
+            logger.Warn(ex, "read_file失败，文件为{path}，范围为{startRow}-{endRow}", args.FilePath, args.StartRow, args.EndRow);
             return new NormalFileReadResponse
             {
                 Success = false,
@@ -125,13 +114,7 @@ public static class FileReader
         }
     }
 
-    private static string ResolvePath(string filePath)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-        return Path.GetFullPath(filePath);
-    }
-
-    private static (int StartLine, int EndLine) ResolveReadRange(int startRow, int endRow)
+    private static (int StartLine, int EndLine) resolveReadRange(int startRow, int endRow)
     {
         if (startRow < 1)
             throw new ArgumentOutOfRangeException(nameof(startRow), "start_row must be 1 or greater.");
@@ -141,7 +124,7 @@ public static class FileReader
 
         var requestedLength = (long)endRow - startRow + 1;
         if (endRow == int.MaxValue || requestedLength == int.MaxValue)
-            endRow = (int)Math.Min((long)startRow + MaxSentinelReadLines - 1, int.MaxValue);
+            endRow = (int)Math.Min((long)startRow + max_sentinel_read_lines - 1, int.MaxValue);
 
         return (startRow, endRow);
     }
