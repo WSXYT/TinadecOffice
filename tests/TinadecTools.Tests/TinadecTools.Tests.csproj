@@ -22,4 +22,8 @@
     <ProjectReference Include="..\..\TinadecTools\TinadecTools.csproj"/>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="fixtures\mcp-mock-server.js" CopyToOutputDirectory="PreserveNewest"/>
+  </ItemGroup>
+
 </Project>
