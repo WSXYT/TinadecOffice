@@ -287,19 +287,13 @@ button {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  /* Solid background by default; transparent when background
-     customization is active (see data-bg-type rules below). */
-  background: var(--bg-primary);
+  /* Always transparent — the background-layer (z-index: 0) in App.vue
+     provides the window's bottom colour, whether it's a custom image/video/html
+     or just the theme's --bg-primary.  This keeps the shell from sliding
+     its own solid background during page transitions. */
+  background: transparent;
   position: relative;
   z-index: 1;
-}
-
-/* When background customization is active, make the shell transparent
-   so the background-layer (z-index: 0) shows through. */
-html[data-bg-type="image"] .shell,
-html[data-bg-type="video"] .shell,
-html[data-bg-type="html"] .shell {
-  background: transparent;
 }
 
 .market-workspace {
@@ -1554,15 +1548,8 @@ box-shadow: var(--shadow-subtle);
   min-height: 0;
   overflow: clip;
   overflow-clip-margin: 20px;
-  /* Solid by default; transparent when background is active. */
-  background: var(--bg-primary);
-}
-
-/* When background customization is active, workspace becomes transparent
-   so the background-layer shows through gaps between floating panels. */
-html[data-bg-type="image"] .workspace,
-html[data-bg-type="video"] .workspace,
-html[data-bg-type="html"] .workspace {
+  /* Always transparent — the background-layer shows through gaps
+     between floating panels. */
   background: transparent;
 }
 
@@ -4483,20 +4470,16 @@ flex-direction: column;
 height: 100vh;
 overflow: hidden;
 position: relative;
-/* Solid background by default; transparent when background customization
-   is active (same layered architecture as HomePage). */
-background: var(--bg-primary);
+/* Always transparent — the background-layer (z-index: 0) in App.vue
+   provides the window's bottom colour.  This keeps the settings page
+   from sliding its own solid background during page transitions. */
+background: transparent;
 border-radius: 12px;
 z-index: 1;
 }
 
-/* When background customization is active, settings page becomes transparent
-   so the background-layer (z-index: 0) shows through. */
-html[data-bg-type="image"] .settings-page,
-html[data-bg-type="video"] .settings-page,
-html[data-bg-type="html"] .settings-page {
-background: transparent;
-}
+/* Settings page is always transparent — the background-layer provides
+   the window's bottom colour, keeping it stable during page transitions. */
 
 .settings-window-controls {
   position: absolute;
@@ -6147,7 +6130,12 @@ min-height: 0;
   font-size: 10.5px;
 }
 
-/* ===== Background Layer Styles ===== */
+/* ===== Background Layer Styles =====
+   The background layer is the static foundation of the entire window.
+   It is ALWAYS rendered (even when type === 'none') and NEVER receives
+   any transition, animation, or transform.  It sits at z-index: 0,
+   outside the <Transition> in App.vue, so page-navigation transforms
+   cannot affect it. */
 .background-layer {
   position: fixed;
   top: 0;
@@ -6157,6 +6145,16 @@ min-height: 0;
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
+  /* Hard-guarantee: no movement, no animation, ever. */
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+}
+
+/* When no custom background is set, the layer shows the theme's primary
+   colour so the window always has a stable, non-animated bottom layer. */
+.background-layer--none {
+  background: var(--bg-primary);
 }
 
 .background-image {

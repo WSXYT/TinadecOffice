@@ -5,11 +5,17 @@ import router from './router'
 import { useBackground } from '@/composables/useBackground'
 
 // ---- Background layer (global, outside page transitions) ----
-// The background layer is rendered here — outside the <Transition> — so
-// it is never affected by page-transition transforms.  CSS `position: fixed`
+// The background layer is ALWAYS rendered here — outside the <Transition> —
+// so it is never affected by page-transition transforms.  CSS `position: fixed`
 // inside a transformed ancestor behaves like `position: absolute`, which
 // would cause the background to slide along with the page.  By keeping it
 // here, the background stays perfectly static during navigation.
+//
+// Even when type === 'none' (no custom background), the layer is still
+// rendered with the theme's --bg-primary colour.  This ensures the window
+// has a stable, non-animated bottom layer at all times.  Page containers
+// (.shell, .settings-page, .workspace) are always transparent so this
+// layer shows through.
 const { settings: backgroundSettings, applyBackground } = useBackground()
 watch(backgroundSettings, () => applyBackground(), { deep: true, immediate: true })
 
@@ -38,8 +44,10 @@ router.beforeEach((to, from, next) => {
 </script>
 
 <template>
-  <!-- Background Layer — rendered outside <Transition> so it never moves -->
-  <div v-if="backgroundSettings.type !== 'none'" class="background-layer">
+  <!-- Background Layer — ALWAYS rendered, outside <Transition>, never moves.
+       When type === 'none' it shows the theme's --bg-primary colour.
+       This div is the stable, static foundation of the entire window. -->
+  <div class="background-layer" :class="{ 'background-layer--none': backgroundSettings.type === 'none' }">
     <!-- Image Background -->
     <div
       v-if="backgroundSettings.type === 'image'"
@@ -76,6 +84,8 @@ router.beforeEach((to, from, next) => {
         filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
       }"
     />
+    <!-- When type === 'none', the layer is empty but still has --bg-primary
+         from .background-layer--none CSS class. -->
   </div>
 
   <RouterView v-slot="{ Component }">
