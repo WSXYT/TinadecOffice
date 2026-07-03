@@ -36,4 +36,13 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\native\rg\rg.exe" Condition="Exists('..\native\rg\rg.exe')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\native\rg\rg" Condition="Exists('..\native\rg\rg')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
