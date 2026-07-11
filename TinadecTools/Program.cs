@@ -5,7 +5,6 @@ using NLog;
 using TinadecTools.Abstractions;
 using TinadecTools.Runtime.Sandbox;
 using TinadecTools.Runtime.Sandbox.Windows;
-using TinadecTools.Tools.Demo;
 using TinadecTools.Tools.FileRW;
 using TinadecTools.Tools.Mcp;
 
@@ -21,7 +20,6 @@ var logger = LogManager.GetCurrentClassLogger();
 FileToolRuntime.InitializeWorkspace();
 
 GeneratedToolRegistry.RegisterAll();
-ToolRegistry.Register(new StatefulTool("[stateful]"));
 
 try
 {

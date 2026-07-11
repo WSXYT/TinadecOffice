@@ -70,16 +70,8 @@ internal static class RipgrepRunner
     {
         var searchPath = WorkspacePathResolver.ResolveDirectory(args.Path);
         var rgPath = ResolveRgPath();
-        string? autoDownloadNote = null;
         if (!File.Exists(rgPath))
-        {
-            var (ok, detail) = await RipgrepDownloader.TryDownloadAsync(rgPath, cancellationToken)
-                .ConfigureAwait(false);
-            if (!ok)
-                return Fail($"ripgrep not found at '{rgPath}' and auto-download failed: {detail}\n" +
-                            $"Set {RgPathEnvVar} env var or place rg binary next to the executable.");
-            autoDownloadNote = $"ripgrep {detail} auto-downloaded from GitHub releases.";
-        }
+            return Fail($"ripgrep not found at '{rgPath}'. Set {RgPathEnvVar} or place rg next to the executable.");
 
         var psi = BuildProcessStartInfo(rgPath, args, searchPath);
         using var process = new Process { StartInfo = psi };
@@ -174,8 +166,7 @@ internal static class RipgrepRunner
             Lines            = lines,
             FileHashes       = fileHashes,
             Truncated        = truncated,
-            TotalMatchCount  = truncated ? Math.Max(totalCount, matchCount) : totalCount,
-            AutoDownloadNote = autoDownloadNote
+            TotalMatchCount  = truncated ? Math.Max(totalCount, matchCount) : totalCount
         };
     }
 
