@@ -190,13 +190,13 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
 const TOOL_SPECS: Record<string, CodeToolSpec> = {
   search_files: {
     id: 'search_files',
-    summary: 'Fuzzy file-name search powered by Codex Rust codex-file-search (nucleo matcher). Returns ranked matches with scores.',
+    summary: 'Search workspace text through TinadecTools ripgrep and return matching lines.',
     category: 'primitive',
     requiresApproval: false
   },
   glob_search: {
     id: 'glob_search',
-    summary: 'Glob-pattern file search powered by Codex Rust ignore crate (WalkBuilder). Supports patterns like **/*.rs, src/**/*.ts.',
+    summary: 'Search files matching a glob through TinadecTools ripgrep. Supports patterns like **/*.rs and src/**/*.ts.',
     category: 'primitive',
     requiresApproval: false
   },
@@ -443,6 +443,15 @@ interface ToolLayerListDirectoryResult {
   next_cursor: string | null;
 }
 
+interface ToolLayerFileSearchResult {
+  success: boolean;
+  error: string | null;
+  lines: unknown[];
+  file_hashes: Record<string, string>;
+  truncated: boolean;
+  total_match_count: number;
+}
+
 async function executeListDirectoryViaToolLayer(
   spec: CodeToolSpec,
   request: CodeToolExecuteRequest
@@ -506,6 +515,86 @@ function isToolLayerListDirectoryResult(value: unknown): value is ToolLayerListD
   return typeof candidate.success === 'boolean' && Array.isArray(candidate.entries);
 }
 
+async function executeFileSearchViaToolLayer(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest
+): Promise<CodeToolExecuteResult> {
+  const args = request.arguments ?? {};
+  const cwd = request.cwd;
+  if (!cwd) {
+    return failedResult(spec, spec.id + ' requires a cwd (workspace root).', args, [spec.id + ':missing-cwd']);
+  }
+
+  const params = fileSearchParams(spec.id, args);
+  if (!params.ok) {
+    return failedResult(spec, params.message, args, [spec.id + ':invalid-arguments']);
+  }
+
+  try {
+    const result = await callToolLayer(cwd, 'file_search', params.value, { sessionId: request.session_id });
+    if (!isToolLayerFileSearchResult(result)) {
+      throw new Error('TinadecTools returned an invalid file_search result.');
+    }
+    if (!result.success) {
+      return failedResult(spec, result.error ?? 'TinadecTools file_search failed.', args, [spec.id + ':tool-layer-rejected']);
+    }
+
+    return resultFor(spec, 'completed', 'Found ' + result.total_match_count + ' matching lines.', {
+      cwd: path.resolve(cwd),
+      ...result
+    }, [spec.id + ':tool-layer', 'tool_id:file_search']);
+  } catch (error) {
+    return failedResult(spec, error instanceof Error ? error.message : String(error), args, [spec.id + ':tool-layer-failed']);
+  }
+}
+
+function fileSearchParams(
+  toolId: string,
+  args: Record<string, unknown>
+): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+  const common = {
+    path: stringArg(args, 'path') ?? '.',
+    type: stringArg(args, 'type') ?? undefined,
+    case_sensitive: booleanArg(args, 'case_sensitive'),
+    context_lines: clampNumber(numberArg(args, 'context_lines') ?? 0, 0, 100),
+    max_results: clampNumber(numberArg(args, 'max_results') ?? numberArg(args, 'limit') ?? 50, 1, 1_000)
+  };
+
+  if (toolId === 'search_files') {
+    const pattern = stringArg(args, 'query') ?? stringArg(args, 'pattern');
+    if (!pattern) return { ok: false, message: 'search_files requires a query.' };
+    return {
+      ok: true,
+      value: {
+        ...common,
+        pattern,
+        fixed_strings: booleanArg(args, 'fixed_strings', true)
+      }
+    };
+  }
+
+  const glob = stringArg(args, 'pattern') ?? stringArg(args, 'glob');
+  if (!glob) return { ok: false, message: 'glob_search requires a glob pattern.' };
+  return {
+    ok: true,
+    value: {
+      ...common,
+      pattern: stringArg(args, 'query') ?? stringArg(args, 'content_pattern') ?? '.',
+      glob,
+      fixed_strings: booleanArg(args, 'fixed_strings')
+    }
+  };
+}
+
+function isToolLayerFileSearchResult(value: unknown): value is ToolLayerFileSearchResult {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ToolLayerFileSearchResult>;
+  return typeof candidate.success === 'boolean'
+    && Array.isArray(candidate.lines)
+    && typeof candidate.truncated === 'boolean'
+    && typeof candidate.total_match_count === 'number';
+}
+
 export async function executeCodeTool(toolId: string, request: CodeToolExecuteRequest = {}): Promise<CodeToolExecuteResult | null> {
   const spec = TOOL_SPECS[toolId];
   if (!spec) {
@@ -514,6 +603,9 @@ export async function executeCodeTool(toolId: string, request: CodeToolExecuteRe
 
   if (spec.id === 'list_directory') {
     return executeListDirectoryViaToolLayer(spec, request);
+  }
+  if (spec.id === 'search_files' || spec.id === 'glob_search') {
+    return executeFileSearchViaToolLayer(spec, request);
   }
 
   const args = request.arguments ?? {};
@@ -842,7 +934,7 @@ async function executeGitWorktreeManager(
       git_root: gitRoot,
       action,
       approval_id: request.approval_id,
-      next_step: 'Dispatch a native Git mutation implementation after Core approval.'
+      next_step: 'Dispatch a Git mutation implementation after Core approval.'
     }, [`git:${action}`, 'approval:supplied', 'mutation:not-implemented']);
   }
 

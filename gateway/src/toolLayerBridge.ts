@@ -41,7 +41,7 @@ class ToolLayerProcess {
     });
     this.child.on('error', (error) => this.failAll(error));
     this.child.on('exit', (code, signal) => {
-      instances.delete(workspace);
+      removeIfCurrent(workspace, this);
       this.failAll(new Error(
         `TinadecTools exited (${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}).${this.stderrSuffix()}`
       ));
@@ -88,6 +88,10 @@ class ToolLayerProcess {
 
   terminate(): void {
     this.child.kill();
+  }
+
+  isRunning(): boolean {
+    return this.child.exitCode === null && !this.child.killed && this.child.stdin.writable;
   }
 
   private consumeStdout(chunk: string): void {
@@ -144,11 +148,21 @@ export async function callToolLayer(
 ): Promise<unknown> {
   const resolvedWorkspace = path.resolve(workspace);
   let instance = instances.get(resolvedWorkspace);
-  if (!instance) {
+  if (!instance?.isRunning()) {
+    if (instance) {
+      removeIfCurrent(resolvedWorkspace, instance);
+      instance.terminate();
+    }
     instance = new ToolLayerProcess(resolvedWorkspace);
     instances.set(resolvedWorkspace, instance);
   }
   return instance.call(toolId, params, options.approved === true, options.sessionId ?? 'gateway');
+}
+
+function removeIfCurrent(workspace: string, instance: ToolLayerProcess): void {
+  if (instances.get(workspace) === instance) {
+    instances.delete(workspace);
+  }
 }
 
 export async function disposeToolLayerWorkspace(workspace: string): Promise<void> {

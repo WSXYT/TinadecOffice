@@ -86,3 +86,35 @@ test('list_directory respects show_hidden flag', async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('search_files and glob_search use the workspace TinadecTools process', async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-search-'));
+  try {
+    await mkdir(path.join(cwd, 'src'));
+    await writeFile(path.join(cwd, 'src', 'match.ts'), 'const needle = true;\n');
+    await writeFile(path.join(cwd, 'src', 'skip.js'), 'const needle = false;\n');
+
+    const textSearch = await executeCodeTool('search_files', {
+      cwd,
+      arguments: { query: 'needle' }
+    });
+    assert.ok(textSearch);
+    assert.equal(textSearch.status, 'completed');
+    assert.ok(textSearch.evidence.includes('search_files:tool-layer'));
+    assert.equal((textSearch.data.lines as unknown[]).length, 2);
+
+    const globSearch = await executeCodeTool('glob_search', {
+      cwd,
+      arguments: { pattern: '**/*.ts' }
+    });
+    assert.ok(globSearch);
+    assert.equal(globSearch.status, 'completed');
+    assert.ok(globSearch.evidence.includes('glob_search:tool-layer'));
+    const lines = globSearch.data.lines as Array<{ filepath: string }>;
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]?.filepath ?? '', /src[\\/]match\.ts$/);
+  } finally {
+    await disposeToolLayerWorkspace(cwd);
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
