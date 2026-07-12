@@ -28,7 +28,9 @@ test('Code tools expose programming-domain execution contracts', async () => {
     'git_push_readiness',
     'git_ref_list',
     'git_remote_list',
+    'git_stage',
     'git_status',
+    'git_unstage',
     'git_worktree_list',
     'git_worktree_manager',
     'glob_search',
@@ -50,10 +52,14 @@ test('Code tools expose programming-domain execution contracts', async () => {
   assert.equal(specs.find((tool) => tool.id === 'project_templates')?.category, 'project');
   assert.equal(specs.find((tool) => tool.id === 'project_template_scaffold')?.requires_approval, true);
   assert.equal(specs.find((tool) => tool.id === 'git_status')?.requires_approval, true);
+  assert.equal(specs.find((tool) => tool.id === 'git_stage')?.requires_approval, true);
 
   const gitRead = await executeCodeTool('git_status', { cwd: process.cwd(), arguments: {} });
   assert.equal(gitRead?.status, 'blocked');
   assert.ok(gitRead?.evidence.includes('approval:required'));
+  const gitIndex = await executeCodeTool('git_stage', { cwd: process.cwd(), arguments: { paths: ['README.md'] } });
+  assert.equal(gitIndex?.status, 'blocked');
+  assert.ok(gitIndex?.evidence.includes('approval:required'));
 
   const search = await executeCodeTool('search_files', { arguments: { query: 'AgentWorkflowRuntime' } });
   assert.equal(search?.requires_approval, false);

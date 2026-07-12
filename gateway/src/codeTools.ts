@@ -293,6 +293,8 @@ const TOOL_SPECS: Record<string, CodeToolSpec> = {
     requiresApproval: true,
     approvalSummary: 'Create or modify Git branches/worktrees.'
   },
+  git_stage: { id: 'git_stage', summary: 'Stage complete files or selected text hunks into the Git index through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Update the Git index with approved file or line selections.' },
+  git_unstage: { id: 'git_unstage', summary: 'Remove complete files or selected text hunks from the Git index through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Update the Git index with approved file or line selections.' },
   git_status: { id: 'git_status', summary: 'Inspect repository status, conflicts, upstream, and ahead/behind state through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git repository status.' },
   git_log_list: { id: 'git_log_list', summary: 'List Git commits through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git commit history.' },
   git_log_detail: { id: 'git_log_detail', summary: 'Read Git commit or range details through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git commit details.' },
@@ -379,7 +381,7 @@ export function codeToolApprovalBlockFor(
     }, ['approval:context-mismatch', 'state_owner: core']);
   }
 
-  if (approval.command && request.arguments) {
+  if (toolId === 'git_worktree_manager' && approval.command && request.arguments) {
     const requestedAction = stringArg(request.arguments, 'action') ?? '';
     const commandAction = extractActionFromApprovalCommand(approval.command);
     if (commandAction && requestedAction !== commandAction) {
@@ -622,6 +624,9 @@ export async function executeCodeTool(toolId: string, request: CodeToolExecuteRe
   }
 
   const args = request.arguments ?? {};
+  if (spec.id === 'git_stage' || spec.id === 'git_unstage') {
+    return executeGitIndexViaToolLayer(spec, request, args);
+  }
   if (spec.id.startsWith('git_') && spec.id !== 'git_worktree_manager') {
     return executeGitReadViaToolLayer(spec, request, args);
   }
@@ -877,6 +882,52 @@ function gitReadCompatibilityTool(action: string, args: Record<string, unknown>)
   }
 }
 
+function gitIndexCompatibilityTool(action: string, args: Record<string, unknown>): { toolId: string; params: Record<string, unknown> } | null {
+  if (action === 'stage') return { toolId: 'git_stage', params: { paths: args.paths, patch: args.patch, max_patch_bytes: args.max_patch_bytes } };
+  if (action === 'unstage') return { toolId: 'git_unstage', params: { paths: args.paths, patch: args.patch, max_patch_bytes: args.max_patch_bytes } };
+  return null;
+}
+
+async function executeGitIndexViaToolLayer(
+  spec: CodeToolSpec,
+  request: CodeToolExecuteRequest,
+  args: Record<string, unknown>,
+  overrideToolId?: string,
+  legacyAction?: string
+): Promise<CodeToolExecuteResult> {
+  if (!request.cwd) return failedResult(spec, `${spec.id} requires a cwd.`, args, ['git:index', 'cwd:required']);
+  if (!request.approval_id) {
+    return resultFor(spec, 'blocked', `${overrideToolId ?? spec.id} requires a Core-approved Git invocation.`, {
+      cwd: request.cwd,
+      required_approval: true
+    }, ['git:index', 'approval:required']);
+  }
+  const toolId = overrideToolId ?? spec.id;
+  try {
+    const result = await callToolLayer(request.cwd, toolId, { ...args, repository_path: '.' }, {
+      approved: true,
+      sessionId: request.session_id
+    }) as Record<string, unknown>;
+    if (result.success !== true) {
+      return failedResult(spec, typeof result.error === 'string' ? result.error : `${toolId} failed.`, args, ['git:index', 'tool-layer-rejected', `tool_id:${toolId}`]);
+    }
+    const status = recordArg(result.status);
+    return resultFor(spec, 'completed', legacyAction ? `Completed Git ${legacyAction}.` : spec.summary, {
+      ...result,
+      ...(legacyAction ? { action: legacyAction } : {}),
+      cwd: path.resolve(request.cwd),
+      branch: status.branch ?? null,
+      upstream: status.upstream ?? null,
+      ahead: status.ahead ?? null,
+      behind: status.behind ?? null,
+      has_uncommitted_changes: status.has_uncommitted_changes ?? null,
+      files: status.files ?? []
+    }, ['git:index', 'tool-layer', `tool_id:${toolId}`]);
+  } catch (error) {
+    return failedResult(spec, error instanceof Error ? error.message : String(error), args, ['git:index', 'tool-layer-failed', `tool_id:${toolId}`]);
+  }
+}
+
 async function executeGitReadViaToolLayer(
   spec: CodeToolSpec,
   request: CodeToolExecuteRequest,
@@ -984,6 +1035,11 @@ async function executeGitWorktreeManager(
 
   if (!request.cwd) {
     return failedResult(spec, 'Git worktree manager requires a cwd.', args);
+  }
+
+  const indexTool = gitIndexCompatibilityTool(action, args);
+  if (indexTool) {
+    return executeGitIndexViaToolLayer(spec, request, indexTool.params, indexTool.toolId, action);
   }
 
   const compatibilityTool = gitReadCompatibilityTool(action, args);
