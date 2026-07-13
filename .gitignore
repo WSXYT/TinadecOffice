@@ -16,6 +16,7 @@ output/
 .omo/
 .idea/
 /.tinadec/sandbox.json
+/.tinadec/worktrees/
 .opencode/
 *.log
 config.json

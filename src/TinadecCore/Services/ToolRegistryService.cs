@@ -199,6 +199,8 @@ public sealed class CodeCapabilityProvider : ICapabilityProvider
         GitWrite("git_branch_create", "Git Branch Create", "git.branch.create", "git.branch.write"),
         GitWrite("git_branch_delete", "Git Branch Delete", "git.branch.delete", "git.branch.write"),
         GitWrite("git_branch_rename", "Git Branch Rename", "git.branch.rename", "git.branch.write"),
+        GitWrite("git_worktree_create", "Git Worktree Create", "git.worktree.create", "git.worktree.write"),
+        GitWrite("git_worktree_remove", "Git Worktree Remove", "git.worktree.remove", "git.worktree.write"),
         .. GitReadTools
     ];
 
@@ -484,6 +486,33 @@ public sealed class ToolRegistryService : IToolRegistry
                     ["confirm_commit"] = new Dictionary<string, object?> { ["type"] = "boolean" }
                 },
                 ["required"] = new[] { "message", "confirm_commit" }
+            },
+            "git_checkout" or "git_branch_create" or "git_branch_delete" or "git_branch_rename" => new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["branch"] = new Dictionary<string, object?> { ["type"] = "string" },
+                    ["new_name"] = new Dictionary<string, object?> { ["type"] = "string" },
+                    ["force"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_checkout"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_create_branch"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_delete_branch"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_rename_branch"] = new Dictionary<string, object?> { ["type"] = "boolean" }
+                }
+            },
+            "git_worktree_create" or "git_worktree_remove" => new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["path"] = new Dictionary<string, object?> { ["type"] = "string", ["description"] = "Managed path inside .tinadec/worktrees." },
+                    ["branch"] = new Dictionary<string, object?> { ["type"] = "string" },
+                    ["start_ref"] = new Dictionary<string, object?> { ["type"] = "string" },
+                    ["force"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_create_worktree"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_remove_worktree"] = new Dictionary<string, object?> { ["type"] = "boolean" }
+                }
             },
             _ => new Dictionary<string, object?>
             {

@@ -35,7 +35,7 @@ public sealed class ToolLayerReadinessService(
             ["git.stage"] = ["git_stage"],
             ["git.unstage"] = ["git_unstage"],
             ["git.branch"] = ["git_branch_list"],
-            ["git.worktree"] = ["git_worktree_list"],
+            ["git.worktree"] = ["git_worktree_list", "git_worktree_create", "git_worktree_remove"],
             ["git.commit"] = ["git_commit", "git_worktree_manager"],
             ["git.push"] = ["git_worktree_manager"],
             ["review.format"] = ["review_format"]

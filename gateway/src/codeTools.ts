@@ -300,6 +300,8 @@ const TOOL_SPECS: Record<string, CodeToolSpec> = {
   git_branch_create: { id: 'git_branch_create', summary: 'Create and checkout an approved Git branch through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Create and checkout a Git branch.' },
   git_branch_delete: { id: 'git_branch_delete', summary: 'Delete an approved Git branch through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Delete a Git branch.' },
   git_branch_rename: { id: 'git_branch_rename', summary: 'Rename the current Git branch through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Rename the current Git branch.' },
+  git_worktree_create: { id: 'git_worktree_create', summary: 'Create an approved managed Git worktree through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Create a managed Git worktree.' },
+  git_worktree_remove: { id: 'git_worktree_remove', summary: 'Remove an approved managed Git worktree through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Remove a managed Git worktree.' },
   git_status: { id: 'git_status', summary: 'Inspect repository status, conflicts, upstream, and ahead/behind state through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git repository status.' },
   git_log_list: { id: 'git_log_list', summary: 'List Git commits through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git commit history.' },
   git_log_detail: { id: 'git_log_detail', summary: 'Read Git commit or range details through TinadecTools.', category: 'git', requiresApproval: true, approvalSummary: 'Read Git commit details.' },
@@ -425,6 +427,8 @@ function extractActionFromApprovalCommand(command: string): string | null {
   if (base === 'branch' && parts.includes('-m')) {
     return 'rename_branch';
   }
+  if (base === 'worktree' && parts[1] === 'add') return 'create_worktree';
+  if (base === 'worktree' && parts[1] === 'remove') return 'remove_worktree';
   return base || null;
 }
 
@@ -435,6 +439,8 @@ function gitApprovalAction(toolId: string, args?: Record<string, unknown> | null
   if (toolId === 'git_branch_create') return 'create_branch';
   if (toolId === 'git_branch_delete') return 'delete_branch';
   if (toolId === 'git_branch_rename') return 'rename_branch';
+  if (toolId === 'git_worktree_create') return 'create_worktree';
+  if (toolId === 'git_worktree_remove') return 'remove_worktree';
   return null;
 }
 
@@ -660,6 +666,9 @@ export async function executeCodeTool(toolId: string, request: CodeToolExecuteRe
   }
   if (spec.id === 'git_checkout' || spec.id.startsWith('git_branch_')) {
     return executeGitBranchViaToolLayer(spec, request, args);
+  }
+  if (spec.id === 'git_worktree_create' || spec.id === 'git_worktree_remove') {
+    return executeGitWorktreeMutationViaToolLayer(spec, request, args);
   }
   if (spec.id.startsWith('git_') && spec.id !== 'git_worktree_manager') {
     return executeGitReadViaToolLayer(spec, request, args);
@@ -943,6 +952,12 @@ function gitBranchCompatibilityTool(action: string, args: Record<string, unknown
   }
 }
 
+function gitWorktreeCompatibilityTool(action: string, args: Record<string, unknown>): { toolId: string; params: Record<string, unknown> } | null {
+  if (action === 'create_worktree') return { toolId: 'git_worktree_create', params: { path: args.path, branch: args.branch, start_ref: args.start_ref, confirm_create_worktree: args.confirm_create_worktree } };
+  if (action === 'remove_worktree') return { toolId: 'git_worktree_remove', params: { path: args.path, force: args.force, confirm_remove_worktree: args.confirm_remove_worktree } };
+  return null;
+}
+
 async function executeGitBranchViaToolLayer(spec: CodeToolSpec, request: CodeToolExecuteRequest, args: Record<string, unknown>, overrideToolId?: string, legacyAction?: string): Promise<CodeToolExecuteResult> {
   if (!request.cwd) return failedResult(spec, `${spec.id} requires a cwd.`, args, ['git:branch', 'cwd:required']);
   if (!request.approval_id) return resultFor(spec, 'blocked', `${overrideToolId ?? spec.id} requires a Core-approved Git invocation.`, { cwd: request.cwd, required_approval: true }, ['git:branch', 'approval:required']);
@@ -956,6 +971,19 @@ async function executeGitBranchViaToolLayer(spec: CodeToolSpec, request: CodeToo
     const legacyFlags = legacyAction === 'checkout' ? { checked_out: true } : legacyAction === 'create_branch' ? { created: true } : legacyAction === 'delete_branch' ? { deleted: true } : legacyAction === 'rename_branch' ? { renamed: true } : {};
     return resultFor(spec, 'completed', legacyAction ? `Completed Git ${legacyAction}.` : spec.summary, { ...result, ...legacyFlags, ...(legacyAction ? { action: legacyAction } : {}), cwd: path.resolve(request.cwd), branch: status.branch ?? result.branch ?? null, upstream: status.upstream ?? null, ahead: status.ahead ?? null, behind: status.behind ?? null, has_uncommitted_changes: status.has_uncommitted_changes ?? null }, ['git:branch', 'tool-layer', `tool_id:${toolId}`]);
   } catch (error) { return failedResult(spec, error instanceof Error ? error.message : String(error), args, ['git:branch', 'tool-layer-failed', `tool_id:${toolId}`]); }
+}
+
+async function executeGitWorktreeMutationViaToolLayer(spec: CodeToolSpec, request: CodeToolExecuteRequest, args: Record<string, unknown>, overrideToolId?: string, legacyAction?: string): Promise<CodeToolExecuteResult> {
+  if (!request.cwd) return failedResult(spec, `${spec.id} requires a cwd.`, args, ['git:worktree', 'cwd:required']);
+  if (!request.approval_id) return resultFor(spec, 'blocked', `${overrideToolId ?? spec.id} requires a Core-approved Git invocation.`, { cwd: request.cwd, required_approval: true }, ['git:worktree', 'approval:required']);
+  const toolId = overrideToolId ?? spec.id;
+  const confirmation = toolId === 'git_worktree_create' ? 'confirm_create_worktree' : 'confirm_remove_worktree';
+  if (!booleanArg(args, confirmation)) return resultFor(spec, 'blocked', `${legacyAction ?? toolId} requires ${confirmation}: true after Core approval.`, { cwd: request.cwd, required_confirmation: confirmation }, ['git:worktree', 'approval:supplied', 'confirmation:required']);
+  try {
+    const result = await callToolLayer(request.cwd, toolId, { ...args, repository_path: '.' }, { approved: true, sessionId: request.session_id }) as Record<string, unknown>;
+    if (result.success !== true) return failedResult(spec, typeof result.error === 'string' ? result.error : `${toolId} failed.`, args, ['git:worktree', 'tool-layer-rejected', `tool_id:${toolId}`]);
+    return resultFor(spec, 'completed', legacyAction ? `Completed Git ${legacyAction}.` : spec.summary, { ...result, ...(legacyAction ? { action: legacyAction } : {}), cwd: path.resolve(request.cwd), created: toolId === 'git_worktree_create', removed: toolId === 'git_worktree_remove' }, ['git:worktree', 'tool-layer', `tool_id:${toolId}`]);
+  } catch (error) { return failedResult(spec, error instanceof Error ? error.message : String(error), args, ['git:worktree', 'tool-layer-failed', `tool_id:${toolId}`]); }
 }
 
 async function executeGitIndexViaToolLayer(
@@ -1201,7 +1229,7 @@ async function executeGitWorktreeManager(
   const action = stringArg(args, 'action') ?? 'status';
   const mutatingActions = new Set([
     'stage', 'unstage', 'commit', 'push', 'pull', 'merge', 'rebase',
-    'create_branch', 'create_worktree', 'checkout', 'fetch', 'resolve_conflict',
+    'create_branch', 'create_worktree', 'remove_worktree', 'checkout', 'fetch', 'resolve_conflict',
     'delete_branch', 'rename_branch'
   ]);
   if (mutatingActions.has(action) && !request.approval_id) {
@@ -1230,6 +1258,11 @@ async function executeGitWorktreeManager(
   const branchTool = gitBranchCompatibilityTool(action, args);
   if (branchTool) {
     return executeGitBranchViaToolLayer(spec, request, branchTool.params, branchTool.toolId, action);
+  }
+
+  const worktreeTool = gitWorktreeCompatibilityTool(action, args);
+  if (worktreeTool) {
+    return executeGitWorktreeMutationViaToolLayer(spec, request, worktreeTool.params, worktreeTool.toolId, action);
   }
 
   const compatibilityTool = gitReadCompatibilityTool(action, args);

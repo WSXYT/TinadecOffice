@@ -39,8 +39,10 @@ test('Code tools expose programming-domain execution contracts', async () => {
     'git_stage',
     'git_status',
     'git_unstage',
+    'git_worktree_create',
     'git_worktree_list',
     'git_worktree_manager',
+    'git_worktree_remove',
     'glob_search',
     'grep_content',
     'language_runtime_probe',
@@ -697,6 +699,39 @@ test('git worktree manager commits only staged files when commit_staged_only is 
   const files = status?.data.files as Array<{ path: string; is_untracked: boolean }>;
   assert.ok(files.some((f) => f.path === 'unstaged.txt'));
   assert.ok(!files.some((f) => f.path === 'staged.txt'));
+});
+
+test('git worktree manager creates and removes managed worktrees through TinadecTools', async (t) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'tinadec-git-worktree-'));
+  t.after(async () => {
+    await disposeToolLayerWorkspace(cwd);
+    await rm(cwd, { recursive: true, force: true });
+  });
+  await initGitRepo(cwd);
+  await runGit(cwd, ['config', 'user.name', 'Tinadec Test']);
+  await runGit(cwd, ['config', 'user.email', 'tinadec@example.invalid']);
+  await writeFile(path.join(cwd, 'file.txt'), 'hello\n', 'utf8');
+  await runGit(cwd, ['add', 'file.txt']);
+  await runGit(cwd, ['commit', '-m', 'initial']);
+
+  const relativePath = '.tinadec/worktrees/feature-wt';
+  const created = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'create_worktree', branch: 'feature-wt', path: relativePath, confirm_create_worktree: true }
+  });
+  assert.equal(created?.status, 'completed');
+  assert.equal(created?.data.created, true);
+  await stat(path.join(cwd, relativePath, '.git'));
+
+  const removed = await executeCodeTool('git_worktree_manager', {
+    cwd,
+    approval_id: 'approval-test',
+    arguments: { action: 'remove_worktree', path: relativePath, confirm_remove_worktree: true }
+  });
+  assert.equal(removed?.status, 'completed');
+  assert.equal(removed?.data.removed, true);
+  await assert.rejects(() => stat(path.join(cwd, relativePath)), /ENOENT/);
 });
 
 test('git worktree manager fetches from a remote and reports tracking info', async (t) => {
