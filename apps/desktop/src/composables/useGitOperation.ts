@@ -524,12 +524,11 @@ export function useGitOperation(
     operationLoading.value = true
     feedback.value = null
     try {
-      const result = await api.executeCodeTool('git_worktree_manager', {
+      const result = await api.executeCodeTool('git_commit', {
         session_id: sid.value,
         approval_id: commitApproval.value.id,
         cwd: cwd.value,
         arguments: {
-          action: 'commit',
           confirm_commit: true,
           commit_staged_only: true,
           message: commitMessage.value.trim(),

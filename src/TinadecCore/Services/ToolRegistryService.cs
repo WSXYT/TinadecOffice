@@ -194,6 +194,7 @@ public sealed class CodeCapabilityProvider : ICapabilityProvider
             ]),
         GitWrite("git_stage", "Git Stage", "git.stage", "git.index.write"),
         GitWrite("git_unstage", "Git Unstage", "git.unstage", "git.index.write"),
+        GitWrite("git_commit", "Git Commit", "git.commit"),
         .. GitReadTools
     ];
 
@@ -466,6 +467,19 @@ public sealed class ToolRegistryService : IToolRegistry
                     ["patch"] = new Dictionary<string, object?> { ["type"] = "string", ["description"] = "Validated unified text patch for a partial Git index update." },
                     ["max_patch_bytes"] = new Dictionary<string, object?> { ["type"] = "integer" }
                 }
+            },
+            "git_commit" => new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["message"] = new Dictionary<string, object?> { ["type"] = "string" },
+                    ["paths"] = new Dictionary<string, object?> { ["type"] = "array", ["items"] = new Dictionary<string, object?> { ["type"] = "string" } },
+                    ["include_all"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["commit_staged_only"] = new Dictionary<string, object?> { ["type"] = "boolean" },
+                    ["confirm_commit"] = new Dictionary<string, object?> { ["type"] = "boolean" }
+                },
+                ["required"] = new[] { "message", "confirm_commit" }
             },
             _ => new Dictionary<string, object?>
             {
