@@ -68,6 +68,7 @@ const {
   resolveConflictApproval,
   deleteBranchApproval,
   renameBranchApproval,
+  worktreeApproval,
   canDecideIndexApproval,
   canDecideCommitApproval,
   canDecidePushApproval,
@@ -80,6 +81,7 @@ const {
   canDecideResolveConflictApproval,
   canDecideDeleteBranchApproval,
   canDecideRenameBranchApproval,
+  canDecideWorktreeApproval,
   // Validation
   canRequestIndexApproval,
   canRequestCommitApproval,
@@ -117,6 +119,9 @@ const {
   executeApprovedDeleteBranch,
   requestRenameBranchApproval,
   executeApprovedRenameBranch,
+  requestCreateWorktreeApproval,
+  requestRemoveWorktreeApproval,
+  executeApprovedWorktreeOperation,
   // Utils
   approvalStatusLabel,
   decideGitApproval,
@@ -334,6 +339,7 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           :fetch-approval="fetchApproval"
           :delete-branch-approval="deleteBranchApproval"
           :rename-branch-approval="renameBranchApproval"
+          :worktree-approval="worktreeApproval"
           :merge-approval="mergeApproval"
           :rebase-approval="rebaseApproval"
           :can-decide-checkout-approval="canDecideCheckoutApproval"
@@ -341,6 +347,7 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           :can-decide-fetch-approval="canDecideFetchApproval"
           :can-decide-delete-branch-approval="canDecideDeleteBranchApproval"
           :can-decide-rename-branch-approval="canDecideRenameBranchApproval"
+          :can-decide-worktree-approval="canDecideWorktreeApproval"
           :can-decide-merge-approval="canDecideMergeApproval"
           :can-decide-rebase-approval="canDecideRebaseApproval"
           :can-request-fetch-approval="canRequestFetchApproval"
@@ -350,6 +357,8 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           @fetch="requestFetchApproval(emitApproval)"
           @delete-branch="requestDeleteBranchApproval($event.branch, $event.force, emitApproval)"
           @rename-branch="requestRenameBranchApproval($event, emitApproval)"
+          @create-worktree="requestCreateWorktreeApproval($event, emitApproval)"
+          @remove-worktree="requestRemoveWorktreeApproval($event, emitApproval)"
           @merge-branch="requestMergeApproval($event, emitApproval)"
           @rebase-branch="requestRebaseApproval($event, emitApproval)"
           @execute-checkout="executeApprovedCheckout"
@@ -357,6 +366,7 @@ const canSync = computed(() => canRequestPullApproval.value || canRequestPushApp
           @execute-fetch="executeApprovedFetch"
           @execute-delete-branch="executeApprovedDeleteBranch"
           @execute-rename-branch="executeApprovedRenameBranch"
+          @execute-worktree="executeApprovedWorktreeOperation"
           @execute-merge="executeApprovedMerge"
           @execute-rebase="executeApprovedRebase($event)"
           @decide-approval="decideApproval"
