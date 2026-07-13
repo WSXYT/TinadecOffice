@@ -93,6 +93,7 @@ import {
   sortedToolProviders,
   type ProjectTemplateSummary
 } from '../toolCatalog'
+import BrandLogo from '@/components/BrandLogo.vue'
 import { UiButton, UiInput, UiCard, UiBadge, UiLabel, UiSwitch } from '@/components/ui'
 import AgentTopologyCanvas from '@/components/AgentTopologyCanvas.vue'
 import AgentEvolutionPanel from '@/components/AgentEvolutionPanel.vue'
@@ -3023,7 +3024,7 @@ loadPromptContextCenter()
           <!-- App identity -->
           <div class="about-brand">
             <div class="about-brand-icon">
-              <img src="/tinadec-logo.svg" alt="TinadecOffice" width="28" height="22" />
+              <BrandLogo :size="28" />
             </div>
             <div class="about-brand-text">
               <span class="about-brand-name">TinadecOffice</span>
