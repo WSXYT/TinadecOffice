@@ -29,7 +29,7 @@ apps/desktop/
 | Prompt Context settings | `src/pages/SettingsPage.vue`, `src/api.ts` | Manage/clone custom prompt fragments and preview Core-assembled prompts through Gateway; do not assemble prompts in the renderer. |
 | Tool layer catalog/search | `src/pages/SettingsPage.vue`, `src/toolCatalog.ts`, `src/api.ts` | Settings presents Code-suite tools, Codex primitives, supported runtimes, Core manifest registry governance/design notes, and Core-owned tool search results. |
 | Tool execution visibility | `src/pages/HomePage.vue`, `src/components/ContextPanel.vue`, `src/components/OrchestrationTab.vue`, `src/api.ts` | Right rail presents Core-owned tool execution timeline state, provider layer, duration, checkpoint summary, and step-result evidence. |
-| Git management UI | `src/components/GitPanel.vue`, `src/components/ContextPanel.vue`, `src/gitDiffParser.ts`, `src/api.ts` | Right rail Git tab calls Gateway `git_worktree_manager` with `status`, `push_plan`, and `diff_preview`; it can request Core `git` approvals and execute approved `stage` / `unstage` / `commit` / `push` calls, but never runs Git directly. |
+| Git management UI | `src/components/GitPanel.vue`, `src/components/ContextPanel.vue`, `src/gitDiffParser.ts`, `src/gitIndexPatch.ts`, `src/api.ts` | Right rail Git tab calls Gateway previews, builds approved hunk/line text patches for `git_stage` / `git_unstage`, and commits/pushes only through Core-approved tool calls; it never runs Git directly. |
 | Marketplace | `src/pages/MarketPage.vue` | Extension source/catalog/install flow. |
 | Debug Studio | `src/debug/DebugStudio.vue`, `src/debug/**` | Composables/types/components are feature-local. |
 | UI primitives | `src/components/ui/index.ts`, `src/lib/utils.ts` | `Ui*` barrel exports; `cn()` uses clsx + tailwind-merge. |
@@ -39,6 +39,7 @@ apps/desktop/
 
 ## CONVENTIONS
 - Use `@/*` for imports from `src/*` when it improves clarity.
+- Windows system surfaces use `public/tinadec.ico`: main, Debug Studio, and detached `BrowserWindow` instances must reference it in both dev and built `dist`; keep `app.setAppUserModelId('com.tinadec.office')` for taskbar grouping.
 - Router uses `createWebHashHistory()`; routes: `/`, `/settings`, `/market`, `/debug-studio`, `/panel` (detached panel window).
 - No Pinia/store layer exists; use composables and local refs.
 - UI stack: Vue, Tailwind via `@tailwindcss/vite`, lucide-vue, shadcn-style primitives.
@@ -49,7 +50,7 @@ apps/desktop/
 - Agent Center consumes Gateway-derived effective bindings for cards and topology. It may preview `inherit`, `fixed_model`, `provider_auto`, `cli`, and `acp`, but must keep save disabled while `agent_runtime_binding_write=false`; never persist drafts in Desktop, Gateway, or `localStorage`.
 - Legacy `model_route_purpose` bindings can be shared by multiple agents. Show `LEGACY_SHARED_ROUTE` warnings and never save an agent runtime choice by rewriting the shared model route.
 - Code-suite UI is presentation-only: group/filter tool descriptors and project template summaries from Gateway/Core, but keep approval and execution ownership outside Desktop.
-- Git UI is presentation plus Core-approved execution: request Tool-layer previews from Gateway, show blockers/diffs/worktrees, create Core approval records when needed, and only call approved `stage` / `unstage` / `commit` / `push` tool executions with Core-verified approval ids; do not run Git directly or mint approval ids in Desktop.
+- Git UI is presentation plus Core-approved execution: request Tool-layer previews from Gateway, use direct approved tools for the complete mutation surface including conflict resolution, and only execute with Core-verified approval ids; do not run Git directly or mint approval ids in Desktop.
 - Tool search UI must consume Core/Gateway `/api/v1/tools/search` results. Do not invent provider-layer, matched-field, or human-checkpoint semantics in the renderer.
 - Tool execution UI must consume Core/Gateway `/api/v1/sessions/{sessionId}/tool-executions` results. Do not reconstruct audit timelines, provider layers, durations, or checkpoint summaries from local event arrays in Desktop.
 - Dev server is pinned: `127.0.0.1:5173`, `strictPort: true`.
